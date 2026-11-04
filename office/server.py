@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import json
 import queue
+import signal
 import socket
 import sys
 from http import HTTPStatus
@@ -45,11 +46,7 @@ def page_url(bind_host: str, port: int) -> str:
     return f"http://[{host}]:{port}" if ":" in host else f"http://{host}:{port}"
 
 
-class OfficeServer(ThreadingHTTPServer):
-    daemon_threads = True
-
-
-class OfficeServer6(OfficeServer):
+class OfficeServer6(ThreadingHTTPServer):
     address_family = socket.AF_INET6
 
     def server_bind(self):
@@ -59,9 +56,14 @@ class OfficeServer6(OfficeServer):
         super().server_bind()
 
 
-def server_class(bind_host: str) -> type[OfficeServer]:
+def server_class(bind_host: str) -> type[ThreadingHTTPServer]:
     """ThreadingHTTPServer speaks IPv4 only; an IPv6 address needs an IPv6 socket."""
-    return OfficeServer6 if ":" in bind_host else OfficeServer
+    return OfficeServer6 if ":" in bind_host else ThreadingHTTPServer
+
+
+def _stop_serving(signum, frame):
+    # Ends serve_forever() the way Ctrl+C does, so the agents are stopped on the way out.
+    raise KeyboardInterrupt
 
 
 def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
@@ -217,12 +219,16 @@ def main(argv: list[str] | None = None) -> int:
         skills=not args.no_skills,
     )
 
-    hosts = allowed_hosts(args.host, args.allow_host)
     bind_host = args.host.strip("[]")
+    hosts = allowed_hosts(bind_host, args.allow_host)
     server = server_class(bind_host)((bind_host, args.port), make_handler(office, hosts))
-    print(f"AI office: {page_url(args.host, server.server_port)}  (workspace: {workspace})")
+    print(f"AI office: {page_url(bind_host, server.server_port)}  (workspace: {workspace})")
     if bind_host not in LOOPBACK_NAMES:
         print("warning: listening beyond this machine; anyone who can reach it can run the worker", file=sys.stderr)
+    # `kill` and a closed terminal must stop the agents too: in their own sessions, they never hear it.
+    for name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), _stop_serving)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

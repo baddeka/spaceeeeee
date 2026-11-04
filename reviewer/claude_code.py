@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -12,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .processes import kill_tree
+from .processes import end_tree, kill_tree
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 # How long an abandoned run gets to exit after SIGTERM before it is killed outright.
@@ -141,15 +142,15 @@ class ClaudeCodeRun:
                     on_event(event)
         except BaseException:
             # Nobody will read the rest of this run, so it must not go on editing files on its own.
-            kill_tree(proc)
-            try:
-                proc.wait(timeout=STOP_GRACE_SECONDS)
-            except subprocess.TimeoutExpired:
-                # It ignored the request, or is stuck writing to the pipe nobody reads any more.
-                kill_tree(proc, force=True)
-                proc.wait()
+            # Closing the pipe first frees a process stuck writing to it instead of waiting out the grace.
+            with contextlib.suppress(OSError):
+                proc.stdout.close()
+            end_tree(proc, STOP_GRACE_SECONDS)
             raise
 
+        if self._stopped:
+            # Claude Code ended; the commands it started that ignored the request end now too.
+            kill_tree(proc, force=True)
         returncode = proc.wait()
         writer.join()
 
@@ -175,6 +176,13 @@ class ClaudeCodeRun:
             self._stopped = True
             if self._proc is not None and self._proc.poll() is None:
                 kill_tree(self._proc)
+
+    def kill(self) -> None:
+        """Like stop(), without asking: for a run that did not end after stop()."""
+        with self._lock:
+            self._stopped = True
+            if self._proc is not None and self._proc.poll() is None:
+                kill_tree(self._proc, force=True)
 
 
 def _write_and_close(stream, text: str) -> None:

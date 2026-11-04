@@ -173,6 +173,31 @@ def test_a_check_that_detaches_a_child_does_not_hang_the_review(repo, monkeypatc
         os.kill(int(pid_file.read_text()), signal.SIGKILL)
 
 
+def test_a_check_that_exits_with_a_detached_child_is_not_a_timeout(repo, monkeypatch):
+    monkeypatch.setattr(context, "KILLED_OUTPUT_SECONDS", 0.5)
+    pid_file = repo / "detached.pid"
+    detach = "python3 -c 'import os, time; os.setsid(); time.sleep(30)'"
+    started = time.monotonic()
+
+    result = context.run_check(f"echo done; {detach} & echo $! > {pid_file}; exit 3", repo, timeout=20)
+
+    try:
+        assert not result.timed_out
+        assert result.exit_code == 3
+        assert "done" in result.output
+        assert time.monotonic() - started < 10
+    finally:
+        os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+def test_a_timed_out_check_says_its_output_was_cut(repo, monkeypatch):
+    monkeypatch.setattr(context, "MAX_CHECK_OUTPUT_CHARS", 10)
+
+    result = context.run_check("echo 0123456789abcdef; sleep 30", repo, timeout=1)
+
+    assert result.timed_out and result.truncated
+
+
 def test_an_interrupted_check_ends_what_it_started(repo, monkeypatch):
     pid_file = repo / "child.pid"
 

@@ -474,6 +474,48 @@ def test_ipv6_addresses_get_an_ipv6_server():
     assert office_server.server_class("127.0.0.1").address_family == socket.AF_INET
 
 
+def test_an_ipv6_server_serves_the_page(tmp_path):
+    try:
+        httpd = office_server.server_class("::1")(("::1", 0), make_handler(make_office(tmp_path)))
+    except OSError:
+        pytest.skip("no IPv6 on this machine")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        url = f"{page_url('::1', httpd.server_port)}/api/state"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            assert response.status == 200
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_shutdown_stops_a_review_in_progress(fake_claude, tmp_path, monkeypatch):
+    office = make_office(tmp_path)
+    office.start_task("x")
+    office.wait_idle()
+    pid_file = tmp_path / "check.pid"
+    (tmp_path / "ws" / ".ai-review.toml").write_text(f'checks = ["sleep 30 & echo $! > {pid_file}; wait"]\n')
+    office.request_review()
+    child = int(wait_for_file(pid_file))
+
+    office.shutdown()
+
+    assert process_gone(child)
+    office.wait_idle()
+    assert office.agents["reviewer"]["status"] != "reviewing"
+
+
+def test_runs_started_after_shutdown_are_stopped(fake_claude, tmp_path):
+    office = make_office(tmp_path)
+    office.shutdown()
+
+    office.start_task("x")
+    office.wait_idle()
+
+    assert fake_claude() == []
+    assert office.agents["worker"]["status"] == "idle"
+
+
 def test_shutdown_stops_the_running_agents(fake_claude, tmp_path, monkeypatch):
     pid_file = tmp_path / "child.pid"
     monkeypatch.setenv("FAKE_CLAUDE_HANG", str(pid_file))

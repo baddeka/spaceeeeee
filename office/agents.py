@@ -10,9 +10,10 @@ from dataclasses import asdict
 from pathlib import Path
 
 from reviewer import context
-from reviewer.claude_code import ClaudeCodeRun, ClaudeCodeStopped
+from reviewer.claude_code import STOP_GRACE_SECONDS, ClaudeCodeRun, ClaudeCodeStopped
 from reviewer.cli import load_config
 from reviewer.llm import BLOCKING, DEFAULT_EFFORT, Issue, Verdict, review
+from reviewer.processes import kill_tree
 
 from .i18n import LANGUAGES, has, t
 from .ideator import (
@@ -193,6 +194,11 @@ class Office:
         self._ideator_run: ClaudeCodeRun | None = None
         # The idea maker keeps one conversation, so asking again on a topic brings new ideas.
         self._ideator_session: str | None = None
+        # The reviewer's run and the check being run, so shutdown() can end them too.
+        self._review_run: ClaudeCodeRun | None = None
+        self._check_proc = None
+        # Set by shutdown(): any run that starts afterwards is stopped at once.
+        self._closed = False
         self._threads: list[threading.Thread] = []
 
         self.agents = {
@@ -432,12 +438,36 @@ class Office:
             raise ValueError(self._t("ideator_not_running" if agent == "ideator" else "worker_not_running"))
         run.stop()
 
-    def shutdown(self) -> None:
-        """Stops the developer and the idea maker, so nothing edits files after the office is gone."""
+    def shutdown(self, grace: float = STOP_GRACE_SECONDS) -> None:
+        """Stops every agent and check, so nothing runs or edits files after the office is gone.
+
+        Runs that start later (the autopilot, a request already under way) are stopped as they start.
+        """
         with self._lock:
-            runs = [run for run in (self._worker_run, self._ideator_run) if run is not None]
+            self._closed = True
+            runs = [r for r in (self._worker_run, self._ideator_run, self._review_run) if r is not None]
+            check = self._check_proc
         for run in runs:
             run.stop()
+        if check is not None:
+            kill_tree(check, force=True)
+        # The office exits next, so the runs get a moment to end and are then ended outright.
+        self.wait_idle(grace)
+        for run in runs:
+            run.kill()
+
+    def _track_review(self, run: ClaudeCodeRun) -> None:
+        with self._lock:
+            self._review_run = run
+            if self._closed:
+                run.stop()
+
+    def _track_check(self, proc) -> None:
+        with self._lock:
+            self._check_proc = proc
+            closed = self._closed
+        if closed:
+            kill_tree(proc, force=True)
 
     def generate_ideas(self, topic: str) -> None:
         topic = topic.strip()
@@ -461,6 +491,8 @@ class Office:
                 resume=self._ideator_session,
                 plugin_dirs=self._plugin_dirs["ideator"],
             )
+            if self._closed:
+                run.stop()
         self._log_entry("user", "topic", self._t("log_topic", topic=topic))
         self._emit_state()
         self._start(self._ideate, run, topic)
@@ -592,6 +624,8 @@ class Office:
             accept_edits=True,
             plugin_dirs=self._plugin_dirs["worker"],
         )
+        if self._closed:
+            self._worker_run.stop()
         return self._worker_run
 
     def _work(self, run: ClaudeCodeRun) -> None:
@@ -661,7 +695,11 @@ class Office:
                 checks = []
             for command in checks:
                 self._announce("reviewer", "running", command=command[:60])
-                check = context.run_check(command, self.workspace)
+                try:
+                    check = context.run_check(command, self.workspace, on_start=self._track_check)
+                finally:
+                    with self._lock:
+                        self._check_proc = None
                 ctx.checks.append(check)
                 self._log_entry("reviewer", "check", f"{'✓' if check.passed else '✗'} {command}")
 
@@ -677,18 +715,23 @@ class Office:
                 instructions = "\n\n".join(
                     filter(None, [config.get("instructions"), REVIEWER_PERSONA, hint, language])
                 )
-                verdict = review(
-                    ctx,
-                    backend="claude-code",
-                    model=self.model,
-                    effort=self.effort or config.get("effort") or DEFAULT_EFFORT,
-                    instructions=instructions,
-                    cwd=self.workspace,
-                    on_event=lambda e: self._on_agent_event("reviewer", e),
-                    plugin_dirs=self._plugin_dirs["reviewer"],
-                    previous=previous,
-                    developer_reply=reply,
-                )
+                try:
+                    verdict = review(
+                        ctx,
+                        backend="claude-code",
+                        model=self.model,
+                        effort=self.effort or config.get("effort") or DEFAULT_EFFORT,
+                        instructions=instructions,
+                        cwd=self.workspace,
+                        on_event=lambda e: self._on_agent_event("reviewer", e),
+                        plugin_dirs=self._plugin_dirs["reviewer"],
+                        previous=previous,
+                        developer_reply=reply,
+                        on_run=self._track_review,
+                    )
+                finally:
+                    with self._lock:
+                        self._review_run = None
                 blocking = sum(1 for i in verdict.issues if i.severity in BLOCKING)
                 if verdict.approved:
                     phrase = ("approved", {})
@@ -734,7 +777,7 @@ class Office:
                 self._set_agent(agent, bubble=_shorten(text))
 
     def wait_idle(self, timeout: float = 10) -> None:
-        """Waits until no agent thread is running, including ones the autopilot starts; for tests."""
+        """Waits until no agent thread is running, including ones the autopilot starts."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._lock:

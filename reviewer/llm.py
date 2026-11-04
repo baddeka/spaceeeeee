@@ -107,15 +107,11 @@ def build_prompt(
         parts.append("")
 
     if developer_reply:
-        # Fenced, so headings in the reply cannot pass for this prompt's own sections.
-        fence = "```"
-        while fence in developer_reply:
-            fence += "`"
         parts.append(
             "# The developer's reply\n"
             "The developer's own account of what it changed, and why it left some notes as they are. "
             "Check it against the code; accept an explanation only when the code bears it out.\n"
-            f"{fence}\n{developer_reply}\n{fence}\n"
+            f"{_fenced(developer_reply)}\n"
         )
 
     if ctx.checks:
@@ -126,15 +122,13 @@ def build_prompt(
             else:
                 status = "PASSED" if check.passed else f"FAILED (exit code {check.exit_code})"
             note = " (output truncated to its last part)" if check.truncated else ""
-            parts.append(
-                f"## `{check.command}`: {status}{note}\n```\n{check.output.strip()}\n```"
-            )
+            parts.append(f"## `{check.command}`: {status}{note}\n{_fenced(check.output.strip())}")
         parts.append("")
     else:
         parts.append("# Check results\nNo checks were configured.\n")
 
     if ctx.diff:
-        parts.append(f"# Diff\n```diff\n{ctx.diff}\n```\n")
+        parts.append(f"# Diff\n{_fenced(ctx.diff, 'diff')}\n")
 
     parts.append("# Files")
     for f in ctx.files:
@@ -143,9 +137,21 @@ def build_prompt(
         elif f.is_new and ctx.diff:
             parts.append(f"## {f.path}\n(new file: every line is in the diff above)")
         else:
-            parts.append(f"## {f.path}\n```\n{f.content}\n```")
+            parts.append(f"## {f.path}\n{_fenced(f.content)}")
 
     return "\n".join(parts)
+
+
+def _fenced(text: str, info: str = "") -> str:
+    """A code block whose fence is longer than any backtick run in `text`.
+
+    The developer writes the reply, the files and what the checks print, so none of them can
+    close the block early and pass their own headings off as this prompt's sections.
+    """
+    fence = "```"
+    while fence in text:
+        fence += "`"
+    return f"{fence}{info}\n{text}\n{fence}"
 
 
 def decide(output: ReviewOutput, ctx: ReviewContext, model: str) -> Verdict:
@@ -178,12 +184,14 @@ def review(
     plugin_dirs: list[Path] | None = None,
     previous: list[dict] | None = None,
     developer_reply: str | None = None,
+    on_run: Callable[[ClaudeCodeRun], None] | None = None,
 ) -> Verdict:
     """Reviews through the Claude API (`backend="api"`) or Claude Code (`"claude-code"`).
 
     `plugin_dirs` gives a Claude Code reviewer extra skills; `previous` lists the notes of the
     last review so a re-review checks they were fixed, and `developer_reply` is what the
-    developer said about them.
+    developer said about them. `on_run` receives the Claude Code run before it starts, so it
+    can be stopped.
     """
     if not ctx.diff and not ctx.files:
         raise ReviewError("nothing to review: no changes found")
@@ -198,7 +206,7 @@ def review(
     cost = None
     if backend == "claude-code":
         output, served_by, cost = _review_with_claude_code(
-            prompt, model, effort, cwd, on_event, plugin_dirs
+            prompt, model, effort, cwd, on_event, plugin_dirs, on_run
         )
     elif backend == "api":
         output, served_by = _review_with_api(prompt, client, model or DEFAULT_MODEL, effort)
@@ -258,6 +266,7 @@ def _review_with_claude_code(
     cwd: Path | None,
     on_event: Callable[[dict], None] | None,
     plugin_dirs: list[Path] | None,
+    on_run: Callable[[ClaudeCodeRun], None] | None = None,
 ) -> tuple[ReviewOutput, str, float | None]:
     run = ClaudeCodeRun(
         prompt,
@@ -271,6 +280,8 @@ def _review_with_claude_code(
         persist_session=False,
         plugin_dirs=plugin_dirs,
     )
+    if on_run:
+        on_run(run)
     try:
         result = run.run(on_event)
     except ClaudeCodeError as e:

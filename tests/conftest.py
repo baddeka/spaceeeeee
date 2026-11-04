@@ -47,7 +47,7 @@ def process_gone(pid, timeout=5.0):
         # A killed child stays a zombie until something reaps it; for these tests it is gone.
         try:
             state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[-1].split()[0]
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             state = None  # reaped just now (the next check sees it), or a system without /proc
         if state == "Z":
             return True

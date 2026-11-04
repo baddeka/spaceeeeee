@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,8 +16,10 @@ EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 MAX_FILE_BYTES = 100_000
 MAX_CHECK_OUTPUT_CHARS = 20_000
-# After a timed-out check is killed, how long to wait for the rest of its output.
+# After a check has exited or been killed, how long to wait for the rest of its output.
 KILLED_OUTPUT_SECONDS = 5
+# How often a running check is looked at, so one that exited is not mistaken for one still running.
+CHECK_POLL_SECONDS = 1
 
 
 class ContextError(Exception):
@@ -150,7 +155,13 @@ def collect_files(repo: Path, paths: list[str]) -> ReviewContext:
     return ReviewContext(description=f"full review of {len(files)} file(s)", diff="", files=files)
 
 
-def run_check(command: str, repo: Path, timeout: float = 600) -> CheckResult:
+def run_check(
+    command: str,
+    repo: Path,
+    timeout: float = 600,
+    on_start: Callable[[subprocess.Popen], None] | None = None,
+) -> CheckResult:
+    """Runs one check. `on_start` receives the process as soon as it exists, so it can be ended early."""
     # stderr goes into stdout so the output reads in the order it was printed. Its own session
     # lets a timeout end everything the command started, not just the shell.
     proc = subprocess.Popen(
@@ -163,11 +174,27 @@ def run_check(command: str, repo: Path, timeout: float = 600) -> CheckResult:
         errors="replace",
         start_new_session=True,
     )
+    deadline = time.monotonic() + timeout
     try:
-        output, _ = proc.communicate(timeout=timeout)
+        if on_start:
+            on_start(proc)
+        while True:
+            try:
+                output, _ = proc.communicate(timeout=min(CHECK_POLL_SECONDS, deadline - time.monotonic()))
+                break
+            except subprocess.TimeoutExpired:
+                if proc.poll() is not None:
+                    # The command is done, but something it started still holds the pipe open: what
+                    # is left of its group ends, and what left the group is not waited for.
+                    kill_tree(proc, force=True)
+                    output = _rest_of_output(proc)
+                    break
+                if time.monotonic() >= deadline:
+                    raise
     except subprocess.TimeoutExpired:
         kill_tree(proc, force=True)
-        return CheckResult(command, None, _tail(_killed_output(proc))[0], timed_out=True)
+        output, truncated = _tail(_rest_of_output(proc))
+        return CheckResult(command, None, output, timed_out=True, truncated=truncated)
     except BaseException:
         # Ctrl+C: the command has its own session, so the terminal's signal never reached it.
         kill_tree(proc, force=True)
@@ -178,15 +205,16 @@ def run_check(command: str, repo: Path, timeout: float = 600) -> CheckResult:
     return CheckResult(command, proc.returncode, output, truncated=truncated)
 
 
-def _killed_output(proc: subprocess.Popen) -> str:
-    """The output of a killed check, without waiting on a process that left its session."""
+def _rest_of_output(proc: subprocess.Popen) -> str:
+    """The output of an ended check, without waiting on a process that left its session."""
     try:
         output, _ = proc.communicate(timeout=KILLED_OUTPUT_SECONDS)
         return output
     except subprocess.TimeoutExpired as e:
         # Something the command detached (setsid, a daemon) still holds the pipe open.
         proc.wait()
-        if proc.stdout:
+        # On Windows a reader thread holds the pipe, and closing it would wait for that thread.
+        if proc.stdout and os.name != "nt":
             proc.stdout.close()
         partial = e.output or ""
         return partial.decode("utf-8", "replace") if isinstance(partial, bytes) else partial
