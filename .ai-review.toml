@@ -1,0 +1,3 @@
+# Checks run before every review. Their results are given to the reviewer as facts,
+# and any failing check blocks approval.
+checks = ["python -m pytest -q"]

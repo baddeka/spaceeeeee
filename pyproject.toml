@@ -1,0 +1,20 @@
+[project]
+name = "ai-review"
+version = "0.1.0"
+description = "Code reviewer powered by Claude, grounded in your tests and linters"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["anthropic>=2.4", "pydantic>=2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+ai-review = "reviewer.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["reviewer"]
