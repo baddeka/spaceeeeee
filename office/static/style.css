@@ -1,3 +1,13 @@
+/* Handjet draws round parentheses like square brackets, which turns reset() into reset[].
+   This face carries only VT323's "(" and ")", so they come from it and everything else from Handjet.
+   VT323: Copyright 2011 The VT323 Project Authors, SIL Open Font License 1.1 (OFL-VT323.txt). */
+@font-face {
+  font-family: "Paren Fix";
+  src: url("/static/parens.woff2") format("woff2");
+  unicode-range: U+0028-0029;
+  font-display: swap;
+}
+
 :root {
   --bg: #e8dcc6;
   --bg-dots: #dccdb2;
@@ -19,10 +29,12 @@
   --warn: #e08a1e;
   --warn-dark: #b06a12;
   --focus: #f2cd4b;
-  /* Tiny5 keeps the pixel look for short labels; Rubik carries anything longer than a few words. */
+  /* All three are pixel or terminal faces, so text matches the office. Tiny5 for short labels,
+     Handjet (dot-matrix, with Cyrillic) for longer text, VT323 for code; VT323 has no Cyrillic,
+     so Ubuntu Mono stands in for it. */
   --pixel-font: "Tiny5", ui-monospace, monospace;
-  --text-font: "Rubik", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono-font: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-font: "Paren Fix", "Handjet", "Tiny5", system-ui, sans-serif;
+  --mono-font: "VT323", "Ubuntu Mono", ui-monospace, monospace;
   color-scheme: light;
 }
 
@@ -60,7 +72,7 @@ body {
   background-color: var(--bg);
   background-image: radial-gradient(var(--bg-dots) 1px, transparent 1px);
   background-size: 8px 8px;
-  font: 16px/1.55 var(--text-font);
+  font: 20px/1.35 var(--text-font);
 }
 
 h1, h2 { margin: 0; font-family: var(--pixel-font); font-weight: 400; line-height: 1.15; letter-spacing: 0.05em; }
@@ -110,14 +122,14 @@ h2 { font-size: 18px; }
 .workspace {
   margin: 4px 0 0;
   color: var(--muted);
-  font: 13px var(--mono-font);
+  font: 18px var(--mono-font);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 52vw;
 }
 
-.meta { display: flex; align-items: center; gap: 12px; font-size: 15px; color: var(--muted); flex: none; }
+.meta { display: flex; align-items: center; gap: 12px; font-size: 19px; color: var(--muted); flex: none; }
 
 .conn::before {
   content: "";
@@ -223,7 +235,7 @@ h2 { font-size: 18px; }
   color: #fff;
   background: #2b2433;
   border: 2px solid #120f17;
-  font: clamp(12px, 1.2vw, 14px)/1.2 var(--text-font);
+  font: clamp(15px, 1.4vw, 18px)/1.1 var(--text-font);
   pointer-events: auto;
   cursor: pointer;
 }
@@ -249,7 +261,7 @@ textarea {
   min-height: 80px;
   padding: 10px 12px;
   resize: vertical;
-  font: 16px/1.45 var(--text-font);
+  font: 20px/1.35 var(--text-font);
   color: var(--text);
   background: var(--panel-2);
   border: 3px solid var(--ink);
@@ -283,7 +295,7 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 .btn.warn { --face: var(--warn); --edge: var(--warn-dark); color: #fff; }
 .btn.ghost { --face: var(--panel); }
 
-.hint { margin: 12px 0 0; min-height: 1.4em; color: var(--muted); font-size: 15px; }
+.hint { margin: 12px 0 0; min-height: 1.4em; color: var(--muted); font-size: 19px; }
 
 /* ---------- verdict ---------- */
 
@@ -295,7 +307,7 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
   flex: none;
   width: 40px;
   height: 40px;
-  font: 700 20px/1 var(--text-font);
+  font: 700 20px/1 system-ui, sans-serif;
   color: #fff;
   border: 3px solid var(--ink);
 }
@@ -303,13 +315,13 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 .verdict[data-approved="false"] .stamp { background: var(--bad); }
 .verdict[data-sent="true"] .stamp { background: var(--warn); }
 .verdict[data-sent="true"] .issues { opacity: 0.7; }
-.verdict-reasons { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
+.verdict-reasons { margin: 4px 0 0; color: var(--muted); font-size: 19px; }
 .verdict-summary { margin: 14px 0; }
 
 .checks { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; }
 .checks li {
   padding: 2px 8px;
-  font: 12px var(--mono-font);
+  font: 17px var(--mono-font);
   background: var(--panel-2);
   border: 2px solid var(--ink);
 }
@@ -320,7 +332,7 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 .issues li { padding: 10px 12px; background: var(--panel-2); border: 2px solid var(--ink); }
 .issue-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .issue-head strong { font-weight: 600; }
-.issue-where { font: 12px var(--mono-font); color: var(--muted); overflow-wrap: anywhere; }
+.issue-where { font: 17px var(--mono-font); color: var(--muted); overflow-wrap: anywhere; }
 .issues p { margin: 6px 0 0; }
 .issues .why { white-space: pre-wrap; overflow-wrap: anywhere; }
 .issues .fix { color: var(--muted); }
@@ -368,8 +380,15 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 .feed li[data-kind="error"] { border-left-color: var(--bad); }
 .feed .who { display: block; font: 13px/1.4 var(--pixel-font); letter-spacing: 0.04em; color: var(--muted); }
 .feed .text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
-.feed li[data-kind="tool"] .text { font: 13px/1.45 var(--mono-font); color: var(--muted); }
+.feed li[data-kind="tool"] .text { font: 18px/1.2 var(--mono-font); color: var(--muted); }
 .empty { margin: 0; color: var(--muted); }
+
+/* code from the agents' text, written between backticks */
+code {
+  padding: 0 3px;
+  font: 1.05em/1 var(--mono-font);
+  background: rgb(43 36 51 / 8%);
+}
 
 /* ---------- toast ---------- */
 
@@ -402,7 +421,7 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
   flex: 1 1 260px;
   min-width: 0;
   padding: 9px 12px;
-  font: 16px/1.4 var(--text-font);
+  font: 20px/1.3 var(--text-font);
   color: var(--text);
   background: var(--panel-2);
   border: 3px solid var(--ink);
@@ -410,7 +429,7 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 }
 .topic-row input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
-.ideas-topic { margin: 14px 0 0; color: var(--muted); font-size: 15px; }
+.ideas-topic { margin: 14px 0 0; color: var(--muted); font-size: 19px; }
 .ideas-topic:empty { display: none; }
 
 .idea-cards {
@@ -434,9 +453,9 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 .idea[data-recommended="true"] { border-top-color: #f2cd4b; box-shadow: 3px 3px 0 var(--shadow); }
 .idea[data-handed="true"] { opacity: 0.75; }
 .idea-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
-.idea-head strong { font-weight: 600; font-size: 17px; line-height: 1.3; }
+.idea-head strong { font-weight: 700; font-size: 22px; line-height: 1.15; }
 .idea p { margin: 0; }
-.idea .why { color: var(--muted); font-size: 15px; }
+.idea .why { color: var(--muted); font-size: 19px; }
 .scope, .star {
   padding: 2px 6px 1px;
   font: 12px/1.3 var(--pixel-font);
@@ -448,7 +467,7 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 .scope.medium { background: #f2cd4b; color: #3b2f0c; }
 .scope.large { background: #f59fb8; color: #4a1828; }
 .star { background: #2b2433; color: #ffe066; }
-.idea details { font-size: 15px; }
+.idea details { font-size: 19px; }
 .idea summary { cursor: pointer; color: var(--ideator); font-weight: 600; }
 .idea summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .idea .brief {
@@ -519,7 +538,7 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 .switch input:focus-visible + .track { outline: 3px solid var(--focus); outline-offset: 2px; }
 .switch-label { font: 16px/1.2 var(--pixel-font); letter-spacing: 0.05em; }
 
-.rounds { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.rounds { display: inline-flex; align-items: center; gap: 8px; font-size: 18px; color: var(--muted); }
 .rounds select {
   padding: 3px 6px;
   font: inherit;
@@ -528,7 +547,7 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
   border: 2px solid var(--ink);
 }
 
-.autopilot-status { font-size: 14px; color: var(--muted); }
+.autopilot-status { font-size: 18px; color: var(--muted); }
 .autopilot[data-state="running"] .autopilot-status { color: var(--bad); font-weight: 600; }
 .autopilot[data-state="approved"] .autopilot-status { color: var(--ok); font-weight: 600; }
 .autopilot[data-state="limit"] .autopilot-status,
@@ -605,7 +624,7 @@ body.drawer-open { overflow: hidden; }
   flex: none;
   width: 36px;
   height: 36px;
-  font: 700 16px/1 var(--text-font);
+  font: 700 16px/1 system-ui, sans-serif;
   color: var(--text);
   background: var(--panel-2);
   border: 3px solid var(--ink);
@@ -638,8 +657,8 @@ body.drawer-open { overflow: hidden; }
   border: 2px solid var(--ink);
   border-left: 6px solid color-mix(in srgb, var(--accent) 55%, var(--panel-2));
 }
-.skill strong { font: 600 14px/1.3 var(--mono-font); }
-.skill span { color: var(--muted); font-size: 14px; }
+.skill strong { font: 20px/1.1 var(--mono-font); }
+.skill span { color: var(--muted); font-size: 18px; }
 .skill em {
   margin-left: 6px;
   padding: 1px 5px;

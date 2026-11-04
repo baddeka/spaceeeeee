@@ -17,7 +17,7 @@ from .agents import WORKER_TOOLS, Busy, Office
 from .i18n import LANGUAGES
 
 STATIC_DIR = Path(__file__).parent / "static"
-STATIC_TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript"}
+STATIC_TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".woff2": "font/woff2"}
 LOOPBACK_NAMES = {"localhost", "127.0.0.1", "[::1]", "::1"}
 HEARTBEAT_SECONDS = 15
 
@@ -42,7 +42,8 @@ def make_handler(office: Office, allow_remote: bool = False):
 
         def _send(self, status: int, body: bytes, content_type: str) -> None:
             self.send_response(status)
-            self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+            text = content_type.startswith("text/") or content_type == "application/json"
+            self.send_header("Content-Type", f"{content_type}; charset=utf-8" if text else content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

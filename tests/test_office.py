@@ -276,6 +276,9 @@ def test_http_serves_page_and_state(server):
     status, body = request(base + "/api/state")
     assert json.loads(body)["agents"]["worker"]["status"] == "idle"
     assert request(base + "/static/../agents.py")[0] == 404
+    with urllib.request.urlopen(base + "/static/parens.woff2", timeout=5) as res:
+        assert res.headers["Content-Type"] == "font/woff2"
+        assert res.read(4) == b"wOF2"
 
 
 def test_http_blocks_cross_site_posts(server):

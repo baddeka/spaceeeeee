@@ -204,6 +204,18 @@ function applyLanguage(next) {
 
 // ---------- rendering ----------
 
+// Agents write code between backticks; show it in the code font instead of as raw backticks.
+// Built from text nodes, never innerHTML, so nothing an agent writes can become markup.
+function richText(el, text) {
+  const parts = String(text ?? "").split(/`([^`\n]+)`/);
+  el.replaceChildren(...parts.map((part, i) => {
+    if (i % 2 === 0) return document.createTextNode(part);
+    const code = document.createElement("code");
+    code.textContent = part;
+    return code;
+  }));
+}
+
 // An agent with nothing to do is resting, or asleep at night; the scene knows which.
 function statusText(agent, status) {
   const t = S();
@@ -240,7 +252,7 @@ function render(s) {
     const a = s.agents[agent];
     if (!a) continue;
     $(`desk-${agent}`).dataset.status = a.status;
-    setText($(`bubble-${agent}`), a.bubble);
+    setText($(`bubble-${agent}`), a.bubble.replace(/`/g, ""));
     $(`status-${agent}`).textContent = statusText(agent, a.status);
   }
 
@@ -336,17 +348,17 @@ function ideaCard(idea, index, t) {
   }
 
   const pitch = document.createElement("p");
-  pitch.textContent = idea.pitch;
+  richText(pitch, idea.pitch);
   const why = document.createElement("p");
   why.className = "why";
-  why.textContent = idea.why;
+  richText(why, idea.why);
 
   const details = document.createElement("details");
   const summary = document.createElement("summary");
   summary.textContent = t.brief;
   const brief = document.createElement("div");
   brief.className = "brief";
-  brief.textContent = idea.task;
+  richText(brief, idea.task);
   details.append(summary, brief);
 
   const button = document.createElement("button");
@@ -373,7 +385,7 @@ function renderVerdict(v) {
   const reasons = v.checks.filter((c) => !c.passed).map((c) => t.check_failed(c.command));
   if (blocking) reasons.push(t.serious(blocking));
   $("verdict-reasons").textContent = reasons.join(" · ") || (n ? t.non_blocking(n) : t.no_notes);
-  $("verdict-summary").textContent = v.summary;
+  richText($("verdict-summary"), v.summary);
 
   $("verdict-checks").replaceChildren(...v.checks.map((c) => {
     const li = document.createElement("li");
@@ -390,7 +402,7 @@ function renderVerdict(v) {
     sev.className = `sev ${i.severity}`;
     sev.textContent = i.severity;
     const title = document.createElement("strong");
-    title.textContent = i.title;
+    richText(title, i.title);
     head.append(sev, title);
     if (i.file) {
       const where = document.createElement("span");
@@ -400,10 +412,10 @@ function renderVerdict(v) {
     }
     const why = document.createElement("p");
     why.className = "why";
-    why.textContent = i.explanation;
+    richText(why, i.explanation);
     const fix = document.createElement("p");
     fix.className = "fix";
-    fix.textContent = `${t.how_to_fix} ${i.suggestion}`;
+    richText(fix, `${t.how_to_fix} ${i.suggestion}`);
     li.append(head, why, fix);
     return li;
   }));
@@ -421,7 +433,9 @@ function logItem(entry) {
   who.textContent = `${S().names[entry.agent] || entry.agent} · ${time}`;
   const text = document.createElement("span");
   text.className = "text";
-  text.textContent = entry.kind === "tool" ? `→ ${entry.text}` : entry.kind === "skill" ? `✦ ${entry.text}` : entry.text;
+  if (entry.kind === "tool") text.textContent = `→ ${entry.text}`;
+  else if (entry.kind === "skill") text.textContent = `✦ ${entry.text}`;
+  else richText(text, entry.text);
   li.append(who, text);
   return li;
 }
@@ -466,7 +480,7 @@ function renderDrawer() {
   $("drawer-title").textContent = t.names[drawerAgent];
   $("drawer-status").textContent = `${t.roles[drawerAgent]} · ${statusText(drawerAgent, agent.status)}`;
   $("drawer").dataset.status = agent.status;
-  $("drawer-bubble").textContent = agent.bubble;
+  richText($("drawer-bubble"), agent.bubble);
 
   const skills = state.skills?.[drawerAgent] || [];
   const list = $("drawer-skills");
