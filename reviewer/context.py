@@ -47,10 +47,11 @@ class ReviewContext:
     checks: list[CheckResult] = field(default_factory=list)
 
 
-def _git(repo: Path, *args: str) -> str:
+def run_git(repo: Path, *args: str) -> str:
     try:
+        # Git prints file contents as they are, in any encoding, so undecodable bytes are replaced.
         proc = subprocess.run(
-            ["git", *args], cwd=repo, capture_output=True, text=True, check=False
+            ["git", *args], cwd=repo, capture_output=True, encoding="utf-8", errors="replace", check=False
         )
     except FileNotFoundError as e:
         raise ContextError("git is not installed") from e
@@ -61,12 +62,12 @@ def _git(repo: Path, *args: str) -> str:
 
 def _paths(repo: Path, *args: str) -> list[str]:
     """Paths printed by git with -z, which keeps non-ASCII names as they are instead of quoting them."""
-    return [p for p in _git(repo, *args, "-z").split("\0") if p]
+    return [p for p in run_git(repo, *args, "-z").split("\0") if p]
 
 
 def _has_head(repo: Path) -> bool:
     try:
-        _git(repo, "rev-parse", "--verify", "--quiet", "HEAD")
+        run_git(repo, "rev-parse", "--verify", "--quiet", "HEAD")
     except ContextError:
         return False
     return True
@@ -75,7 +76,7 @@ def _has_head(repo: Path) -> bool:
 def _resolve_target(repo: Path, base: str | None) -> tuple[str, str]:
     """Returns (git ref to diff the working tree against, human description)."""
     if base:
-        merge_base = _git(repo, "merge-base", base, "HEAD").strip()
+        merge_base = run_git(repo, "merge-base", base, "HEAD").strip()
         return merge_base, f"changes since {base} (merge-base {merge_base[:10]})"
     if _has_head(repo):
         return "HEAD", "uncommitted changes against HEAD"
@@ -99,7 +100,7 @@ def read_snapshot(repo: Path, rel_path: str) -> FileSnapshot:
 
 def collect_diff(repo: Path, base: str | None = None) -> ReviewContext:
     target, description = _resolve_target(repo, base)
-    diff = _git(repo, "diff", target)
+    diff = run_git(repo, "diff", target)
     changed = set(_paths(repo, "diff", "--name-only", target))
     added = set(_paths(repo, "diff", "--name-only", "--diff-filter=A", target))
     untracked = _paths(repo, "ls-files", "--others", "--exclude-standard")
@@ -132,11 +133,14 @@ def _untracked_as_diff(repo: Path, rel_path: str) -> str:
 
 def collect_files(repo: Path, paths: list[str]) -> ReviewContext:
     files = []
+    root = repo.resolve()
     for p in paths:
         path = (repo / p).resolve()
         if not path.is_file():
             raise ContextError(f"not a file: {p}")
-        files.append(read_snapshot(repo, str(path.relative_to(repo.resolve()))))
+        if not path.is_relative_to(root):
+            raise ContextError(f"outside the repository: {p}")
+        files.append(read_snapshot(repo, path.relative_to(root).as_posix()))
     return ReviewContext(description=f"full review of {len(files)} file(s)", diff="", files=files)
 
 
@@ -147,7 +151,8 @@ def run_check(command: str, repo: Path, timeout: float = 600) -> CheckResult:
             shell=True,
             cwd=repo,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             check=False,
         )

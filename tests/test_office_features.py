@@ -320,3 +320,31 @@ def test_finished_agent_threads_are_not_kept(fake_claude, tmp_path):
         office.wait_idle()
 
     assert len(office._threads) <= 1
+
+
+def test_stop_right_after_start_stops_the_run(fake_claude, tmp_path, monkeypatch):
+    # The fake would wait for a minute; the stop must land even before its thread gets going.
+    monkeypatch.setenv("FAKE_CLAUDE_HANG", str(tmp_path / "child.pid"))
+    office = Office(tmp_path / "ws")
+    office.start_task("x")
+    office.stop("worker")
+    office.wait_idle()
+
+    assert office.agents["worker"]["status"] == "idle"
+    assert office.agents["worker"]["bubble"] == "Stopped. Waiting for you"
+
+
+def test_an_unexpected_error_does_not_leave_the_reviewer_busy(fake_claude, tmp_path, monkeypatch):
+    office = Office(tmp_path / "ws")
+    office.start_task("x")
+    office.wait_idle()
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("surprise")
+
+    monkeypatch.setattr("office.agents.context.collect_diff", broken)
+    office.request_review()
+    office.wait_idle()
+
+    assert office.agents["reviewer"]["status"] == "idle"
+    assert office.agents["reviewer"]["bubble"] == "Could not review"

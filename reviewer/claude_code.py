@@ -20,6 +20,13 @@ class ClaudeCodeError(Exception):
     pass
 
 
+class ClaudeCodeStopped(ClaudeCodeError):
+    """The run was ended by stop()."""
+
+    def __init__(self):
+        super().__init__("stopped")
+
+
 @dataclass
 class RunResult:
     session_id: str | None
@@ -90,7 +97,7 @@ class ClaudeCodeRun:
             )
         with self._lock:
             if self._stopped:
-                raise ClaudeCodeError("stopped")
+                raise ClaudeCodeStopped()
             # stderr joins stdout so neither pipe can fill up while the other is read; its own
             # session lets stop() end the commands Claude Code started, not just Claude Code.
             self._proc = subprocess.Popen(
@@ -99,7 +106,9 @@ class ClaudeCodeRun:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
+                # Claude Code speaks UTF-8 whatever the system's locale is (cp1251 on a Russian Windows).
+                encoding="utf-8",
+                errors="replace",
                 start_new_session=True,
             )
         proc = self._proc
@@ -131,7 +140,7 @@ class ClaudeCodeRun:
         writer.join()
 
         if self._stopped:
-            raise ClaudeCodeError("stopped")
+            raise ClaudeCodeStopped()
         if result is None:
             detail = other[-1] if other else f"exit code {returncode}"
             raise ClaudeCodeError(f"Claude Code exited without a result: {detail}")

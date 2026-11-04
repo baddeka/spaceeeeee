@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import queue
-import subprocess
 import threading
 import time
 from collections import deque
@@ -11,15 +10,14 @@ from dataclasses import asdict
 from pathlib import Path
 
 from reviewer import context
-from reviewer.claude_code import ClaudeCodeError, ClaudeCodeRun
-from reviewer.cli import ConfigError, load_config
-from reviewer.llm import BLOCKING, Issue, ReviewError, Verdict, review
+from reviewer.claude_code import ClaudeCodeRun, ClaudeCodeStopped
+from reviewer.cli import load_config
+from reviewer.llm import BLOCKING, Issue, Verdict, review
 
 from .i18n import LANGUAGES, has, t
 from .ideator import (
     IDEATOR_PROMPT,
     IDEATOR_TOOLS,
-    IdeasError,
     IdeasOutput,
     idea_request,
     parse_ideas,
@@ -306,16 +304,9 @@ class Office:
     # ----- git -----
 
     def _git(self, *args: str) -> str:
-        proc = subprocess.run(
-            ["git", "-c", "user.name=AI Office", "-c", "user.email=office@localhost", *args],
-            cwd=self.workspace,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode != 0:
-            raise context.ContextError(f"git {args[0]} failed: {proc.stderr.strip()}")
-        return proc.stdout.strip()
+        # The office commits under its own name, so it works where no git identity is set up.
+        identity = ["-c", "user.name=AI Office", "-c", "user.email=office@localhost"]
+        return context.run_git(self.workspace, *identity, *args).strip()
 
     def _ensure_repo(self) -> None:
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -368,12 +359,13 @@ class Office:
             self.agents["worker"]["status"] = "working"
             self._phrase("worker", "reading_task")
             self._phrase("reviewer", "reviewer_waiting")
+            run = self._worker_run = self._new_worker_run(text)
         if from_idea:
             self._log_entry("ideator", "handoff", self._t("log_idea_handoff", title=self.task_title))
         else:
             self._log_entry("user", "task", text)
         self._emit_state()
-        self._start(self._work, text)
+        self._start(self._work, run)
 
     def send_rework(self, auto: bool = False) -> None:
         with self._lock:
@@ -389,9 +381,10 @@ class Office:
             self._phrase("worker", "reading_findings")
             self.agents["reviewer"]["status"] = "idle"
             self._phrase("reviewer", "waiting_for_fixes")
+            run = self._worker_run = self._new_worker_run(prompt)
         self._log_entry("reviewer", "handoff", self._t("log_handoff"))
         self._emit_state()
-        self._start(self._work, prompt)
+        self._start(self._work, run)
 
     def request_review(self, auto: bool = False) -> None:
         with self._lock:
@@ -442,9 +435,21 @@ class Office:
                 raise Busy(self._t("busy_ideator"))
             self.agents["ideator"]["status"] = "thinking"
             self._phrase("ideator", "ideator_thinking", topic=_shorten(topic, 40))
+            run = self._ideator_run = ClaudeCodeRun(
+                # Like the worker's, every message of the resumed conversation names the language.
+                idea_request(topic, self._t("reply_in")),
+                cwd=self.workspace,
+                tools=IDEATOR_TOOLS,
+                system_prompt=IDEATOR_PROMPT,
+                json_schema=IdeasOutput.model_json_schema(),
+                model=self.model,
+                effort=self.effort,
+                resume=self._ideator_session,
+                plugin_dirs=self._plugin_dirs["ideator"],
+            )
         self._log_entry("user", "topic", self._t("log_topic", topic=topic))
         self._emit_state()
-        self._start(self._ideate, topic)
+        self._start(self._ideate, run, topic)
 
     def hand_off(self, index) -> None:
         """Gives one of the ideas to the developer as its next task."""
@@ -554,9 +559,10 @@ class Office:
 
     # ----- agent loops -----
 
-    def _work(self, prompt: str) -> None:
-        # The language goes in every message: a resumed session keeps its original system prompt.
-        run = ClaudeCodeRun(
+    def _new_worker_run(self, prompt: str) -> ClaudeCodeRun:
+        """The developer's next run. It exists before its thread starts, so Stop works at once."""
+        return ClaudeCodeRun(
+            # The language goes in every message: a resumed session keeps its original system prompt.
             f"{prompt}\n\n{self._t('reply_in')}",
             cwd=self.workspace,
             tools=self.worker_tools,
@@ -567,13 +573,13 @@ class Office:
             accept_edits=True,
             plugin_dirs=self._plugin_dirs["worker"],
         )
-        with self._lock:
-            self._worker_run = run
+
+    def _work(self, run: ClaudeCodeRun) -> None:
         try:
             result = run.run(lambda e: self._on_agent_event("worker", e))
-        except (ClaudeCodeError, OSError) as e:
+        except Exception as e:
             # Any failure must end in "idle": a stuck "working" would block the office for good.
-            stopped = str(e) == "stopped"
+            stopped = isinstance(e, ClaudeCodeStopped)
             self._log_entry("worker", "error", self._t("log_stopped") if stopped else str(e))
             with self._lock:
                 self.agents["worker"]["skill"] = None
@@ -582,7 +588,8 @@ class Office:
             return
         finally:
             with self._lock:
-                self._worker_run = None
+                if self._worker_run is run:  # a new task may already have its own run
+                    self._worker_run = None
 
         with self._lock:
             self.session_id = result.session_id or self.session_id
@@ -593,26 +600,13 @@ class Office:
         self._announce("worker", "done", "idle")
         self._autopilot_step()
 
-    def _ideate(self, topic: str) -> None:
-        run = ClaudeCodeRun(
-            # Like the worker, the language goes in every message of the resumed conversation.
-            idea_request(topic, self._t("reply_in")),
-            cwd=self.workspace,
-            tools=IDEATOR_TOOLS,
-            system_prompt=IDEATOR_PROMPT,
-            json_schema=IdeasOutput.model_json_schema(),
-            model=self.model,
-            effort=self.effort,
-            resume=self._ideator_session,
-            plugin_dirs=self._plugin_dirs["ideator"],
-        )
-        with self._lock:
-            self._ideator_run = run
+    def _ideate(self, run: ClaudeCodeRun, topic: str) -> None:
         try:
             result = run.run(lambda e: self._on_agent_event("ideator", e))
             ideas = parse_ideas(result.structured_output)
-        except (ClaudeCodeError, IdeasError, OSError) as e:
-            stopped = str(e) == "stopped"
+        except Exception as e:
+            # As with the developer, a failure must never leave "thinking" behind.
+            stopped = isinstance(e, ClaudeCodeStopped)
             self._log_entry("ideator", "error", self._t("log_stopped") if stopped else str(e))
             with self._lock:
                 self.agents["ideator"]["skill"] = None
@@ -620,7 +614,8 @@ class Office:
             return
         finally:
             with self._lock:
-                self._ideator_run = None
+                if self._ideator_run is run:
+                    self._ideator_run = None
 
         with self._lock:
             self._ideator_session = result.session_id or self._ideator_session
@@ -677,8 +672,8 @@ class Office:
                     phrase = ("approved", {})
                 else:
                     phrase = ("needs_fixes", {"count": blocking}) if blocking else ("checks_failed", {})
-        except (context.ContextError, ConfigError, ReviewError, OSError) as e:
-            # A stuck "reviewing" would block the office, so every expected failure ends the review.
+        except Exception as e:
+            # A stuck "reviewing" would block the office, so every failure ends the review.
             self._log_entry("reviewer", "error", str(e))
             with self._lock:
                 self.agents["reviewer"]["skill"] = None

@@ -1,3 +1,5 @@
+import pytest
+
 from reviewer import context
 from reviewer.context import EMPTY_TREE
 
@@ -89,7 +91,7 @@ def test_long_check_output_keeps_the_tail(repo):
 
 
 def test_empty_tree_constant_matches_git(repo):
-    out = context._git(repo, "hash-object", "-t", "tree", "/dev/null")
+    out = context.run_git(repo, "hash-object", "-t", "tree", "/dev/null")
     assert out.strip() == EMPTY_TREE
 
 
@@ -107,3 +109,29 @@ def test_non_ascii_paths_are_read_not_marked_deleted(repo):
     assert set(files) == {"заметки.md", "файл с пробелом.py"}
     assert files["заметки.md"].content == "привет\n" and files["заметки.md"].is_new
     assert files["файл с пробелом.py"].skipped_reason is None
+
+
+def test_files_in_other_encodings_do_not_break_the_diff(repo):
+    (repo / "old.txt").write_text("a\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "init")
+    (repo / "old.txt").write_bytes("Привет\n".encode("cp1251"))
+
+    ctx = context.collect_diff(repo)
+
+    assert "old.txt" in ctx.diff
+    assert ctx.files[0].skipped_reason == "not UTF-8"
+
+
+def test_check_output_in_other_encodings_is_kept(repo):
+    result = context.run_check("printf '\\377ok'", repo)
+
+    assert result.passed and result.output.endswith("ok")
+
+
+def test_collect_files_rejects_paths_outside_the_repo(repo, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("elsewhere") / "secret.txt"
+    outside.write_text("x\n")
+
+    with pytest.raises(context.ContextError, match="outside the repository"):
+        context.collect_files(repo, [str(outside)])

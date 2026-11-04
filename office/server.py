@@ -139,8 +139,8 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
                     except queue.Empty:
                         self.wfile.write(b": ping\n\n")
                         self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+            except OSError:
+                pass  # the page went away (a closed tab, a dropped connection)
             finally:
                 office.unsubscribe(q)
                 self.close_connection = True
@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="NAME",
         help="another name the page may be opened by, e.g. a Tailscale name (repeatable)",
     )
-    p.add_argument("--model", help="Claude model for both agents (default: Claude Code's default)")
+    p.add_argument("--model", help="Claude model for all three agents (default: Claude Code's default)")
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--no-bash", action="store_true", help="do not let the worker run shell commands")
     p.add_argument("--lang", choices=LANGUAGES, default="en", help="language of the page and the agents (default: en)")

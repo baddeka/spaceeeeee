@@ -554,16 +554,17 @@ async function post(path, body = {}) {
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    if (!res.ok) {
-      toast(data.error || S().error_status(res.status));
-      return false;
+    if (res.ok) {
+      render(data);
+      return true;
     }
-    render(data);
-    return true;
+    toast(data.error || S().error_status(res.status));
   } catch {
     toast(S().no_connection);
-    return false;
   }
+  // Put back what the server still has, so a switch the user flipped does not claim it took effect.
+  if (state) render(state);
+  return false;
 }
 
 function connect() {

@@ -1,7 +1,7 @@
 [project]
 name = "ai-review"
 version = "0.1.0"
-description = "Claude-powered code reviewer and a two-agent web office"
+description = "Claude-powered code reviewer and a three-agent web office"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["anthropic>=2.4", "pydantic>=2"]
