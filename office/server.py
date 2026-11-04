@@ -21,6 +21,9 @@ STATIC_TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascrip
 LOOPBACK_NAMES = {"localhost", "127.0.0.1", "::1"}
 WILDCARD_HOSTS = {"", "0.0.0.0", "::"}
 HEARTBEAT_SECONDS = 15
+# A client that stops reading (a sleeping laptop, a phone with the page in the background) is
+# dropped after this long, instead of holding a thread and piling up events. Above the heartbeat.
+SOCKET_TIMEOUT_SECONDS = 60
 FORBIDDEN_HOST = "forbidden host: open the page by an allowed name, or start ai-office with --allow-host NAME"
 
 
@@ -33,9 +36,16 @@ def allowed_hosts(bind_host: str, extra: list[str] | None = None) -> set[str]:
     return hosts
 
 
+def page_url(bind_host: str, port: int) -> str:
+    """The address to open in a browser: a wildcard bind is reached through localhost."""
+    host = "127.0.0.1" if bind_host in WILDCARD_HOSTS else bind_host.strip("[]")
+    return f"http://[{host}]:{port}" if ":" in host else f"http://{host}:{port}"
+
+
 def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+        timeout = SOCKET_TIMEOUT_SECONDS
 
         def log_message(self, format, *args):  # keep the terminal quiet
             pass
@@ -188,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     hosts = allowed_hosts(args.host, args.allow_host)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(office, hosts))
     server.daemon_threads = True
-    print(f"AI office: http://{args.host}:{server.server_port}  (workspace: {workspace})")
+    print(f"AI office: {page_url(args.host, server.server_port)}  (workspace: {workspace})")
     if args.host.strip("[]") not in LOOPBACK_NAMES:
         print("warning: listening beyond this machine; anyone who can reach it can run the worker", file=sys.stderr)
     try:

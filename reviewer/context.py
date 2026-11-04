@@ -6,6 +6,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .processes import kill_tree
+
 # Git's well-known empty tree: diffing against it shows every file as added.
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
@@ -48,6 +50,8 @@ class ReviewContext:
 
 
 def run_git(repo: Path, *args: str) -> str:
+    if not repo.is_dir():
+        raise ContextError(f"not a folder: {repo}")
     try:
         # Git prints file contents as they are, in any encoding, so undecodable bytes are replaced.
         proc = subprocess.run(
@@ -145,29 +149,27 @@ def collect_files(repo: Path, paths: list[str]) -> ReviewContext:
 
 
 def run_check(command: str, repo: Path, timeout: float = 600) -> CheckResult:
+    # stderr goes into stdout so the output reads in the order it was printed. Its own session
+    # lets a timeout end everything the command started, not just the shell.
+    proc = subprocess.Popen(
+        command,
+        shell=True,
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        encoding="utf-8",
+        errors="replace",
+        start_new_session=True,
+    )
     try:
-        proc = subprocess.run(
-            command,
-            shell=True,
-            cwd=repo,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as e:
-        output = _decode(e.stdout) + _decode(e.stderr)
+        output, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_tree(proc, force=True)
+        output, _ = proc.communicate()
         return CheckResult(command, None, _tail(output)[0], timed_out=True)
 
-    output, truncated = _tail(proc.stdout + proc.stderr)
+    output, truncated = _tail(output)
     return CheckResult(command, proc.returncode, output, truncated=truncated)
-
-
-def _decode(data: bytes | str | None) -> str:
-    if data is None:
-        return ""
-    return data if isinstance(data, str) else data.decode("utf-8", "replace")
 
 
 def _tail(output: str) -> tuple[str, bool]:

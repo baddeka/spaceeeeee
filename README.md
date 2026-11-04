@@ -115,7 +115,7 @@ The skills live in `office/skills/<role>/skills/<name>/SKILL.md`. To add one, cr
 
 - **Failing checks skip the model review.** If the project's checks fail, the work goes back with their output right away, without a reviewer run: the code will change anyway. Turn this off with `fast_fail = false` in `.ai-review.toml`.
 - **New files are sent once.** Their content is already in the diff, so it is not repeated in the review prompt.
-- **A re-review gets the previous notes** and checks each one, instead of starting from scratch.
+- **A re-review gets the previous notes** and coderen's reply to them, and checks each one instead of starting from scratch.
 - **Caches stay out.** `__pycache__`, `node_modules`, virtualenvs and the like go into the repository's local exclude file, so they are never reviewed or committed.
 - The reviewer starts fresh for each review and only reads files; the developer keeps one conversation, so fixes do not repeat context.
 
@@ -170,6 +170,7 @@ reviewer/
   context.py      collects the diff and changed files, runs the checks
   llm.py          reviewer prompt, answer schema, verdict, the api and claude-code backends
   claude_code.py  runs `claude -p` and streams its stream-json events
+  processes.py    ends a command together with everything it started
   cli.py          the ai-review command
 office/
   agents.py       the office: idea maker, developer, reviewer, autopilot, skills, git snapshots

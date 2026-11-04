@@ -348,3 +348,46 @@ def test_an_unexpected_error_does_not_leave_the_reviewer_busy(fake_claude, tmp_p
 
     assert office.agents["reviewer"]["status"] == "idle"
     assert office.agents["reviewer"]["bubble"] == "Could not review"
+
+
+def test_re_review_hears_the_developers_reply(fake_claude, tmp_path, monkeypatch):
+    office = Office(tmp_path / "ws")
+    monkeypatch.setenv("FAKE_CLAUDE_REVIEW", MAJOR)
+    office.start_task("x")
+    office.wait_idle()
+    office.request_review()
+    office.wait_idle()
+    office.send_rework()
+    office.wait_idle()
+
+    office.request_review()
+    office.wait_idle()
+
+    first, second = reviews(fake_claude())
+    assert "The developer's reply" not in first["prompt"]
+    assert "The developer's reply" in second["prompt"]
+    assert "Done: app.py prints hello" in second["prompt"]
+
+
+def test_project_effort_applies_to_the_review(fake_claude, tmp_path):
+    office = Office(tmp_path / "ws")
+    (tmp_path / "ws" / ".ai-review.toml").write_text('effort = "low"\n')
+    office.start_task("x")
+    office.wait_idle()
+
+    office.request_review()
+    office.wait_idle()
+
+    assert arg(reviews(fake_claude())[0], "--effort") == "low"
+
+
+def test_turning_autopilot_on_hands_over_waiting_ideas(fake_claude, tmp_path):
+    office = Office(tmp_path / "ws")
+    office.generate_ideas("study tools")
+    office.wait_idle()
+    assert office.task is None
+
+    office.set_autopilot(True, max_rounds=1)
+    office.wait_idle()
+
+    assert office.task_title == "Focus timer page"

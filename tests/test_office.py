@@ -1,5 +1,5 @@
 import json
-import os
+import socket
 import sys
 import threading
 import time
@@ -10,10 +10,13 @@ from pathlib import Path
 
 import pytest
 
+from office import server as office_server
 from office.agents import Busy, Office, _shorten, describe_tool, rework_prompt
-from office.server import allowed_hosts, make_handler
+from office.server import allowed_hosts, make_handler, page_url
 from reviewer import claude_code, llm
 from reviewer.claude_code import ClaudeCodeRun
+
+from .conftest import process_gone, wait_for_file
 
 FAKE = Path(__file__).parent / "fake_claude.py"
 
@@ -77,20 +80,31 @@ def test_stop_ends_the_commands_claude_code_started(fake_claude, tmp_path, monke
     errors = []
     thread = threading.Thread(target=lambda: _capture(errors, run.run))
     thread.start()
-    deadline = time.monotonic() + 10
-    while not pid_file.exists() and time.monotonic() < deadline:
-        time.sleep(0.05)
-    child = int(pid_file.read_text())
+    child = int(wait_for_file(pid_file))
 
     run.stop()
     thread.join(10)
 
     assert not thread.is_alive()
-    assert str(errors[0]) == "stopped"
-    deadline = time.monotonic() + 5
-    while _alive(child) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    assert not _alive(child)
+    assert isinstance(errors[0], claude_code.ClaudeCodeStopped)
+    assert process_gone(child)
+
+
+def test_a_failing_event_handler_ends_the_run(fake_claude, tmp_path, monkeypatch):
+    # Nobody reads the run after the error, so it must not keep editing files on its own.
+    pid_file = tmp_path / "child.pid"
+    monkeypatch.setenv("FAKE_CLAUDE_HANG", str(pid_file))
+
+    def broken(event):
+        wait_for_file(pid_file)
+        raise RuntimeError("handler bug")
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="handler bug"):
+        ClaudeCodeRun("x", cwd=tmp_path, tools=[]).run(broken)
+
+    assert time.monotonic() - started < 20
+    assert process_gone(int(pid_file.read_text()))
 
 
 def test_stop_before_start_prevents_the_run(fake_claude, tmp_path):
@@ -107,16 +121,6 @@ def _capture(errors, fn):
         fn()
     except claude_code.ClaudeCodeError as e:
         errors.append(e)
-
-
-def _alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    # A killed child stays as a zombie until its parent, already gone, would reap it.
-    status = Path(f"/proc/{pid}/stat")
-    return not (status.exists() and status.read_text().split(")")[-1].split()[0] == "Z")
 
 
 def test_claude_code_missing_binary(tmp_path, monkeypatch):
@@ -316,6 +320,7 @@ def server(tmp_path):
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{httpd.server_port}", office
     httpd.shutdown()
+    httpd.server_close()
 
 
 def request(url, method="GET", body=None, headers=None):
@@ -367,6 +372,7 @@ def test_http_refuses_other_names_for_this_address(tmp_path):
             assert request(base + "/api/state", headers={"Host": f"{host}:8000"})[0] == expected, host
     finally:
         httpd.shutdown()
+        httpd.server_close()
 
 
 def test_allowed_hosts_skip_wildcard_addresses():
@@ -416,3 +422,47 @@ def test_shorten_handles_blank_and_long_text():
     assert _shorten("") == _shorten("  \n") == ""
     assert _shorten("first\nsecond") == "first"
     assert _shorten("x" * 100, 10) == "x" * 9 + "…"
+
+
+def test_page_url_is_one_the_server_accepts():
+    assert page_url("0.0.0.0", 8000) == "http://127.0.0.1:8000"
+    assert page_url("::", 8000) == "http://127.0.0.1:8000"
+    assert page_url("::1", 8000) == "http://[::1]:8000"
+    assert page_url("100.64.0.7", 8000) == "http://100.64.0.7:8000"
+
+
+def test_a_client_that_stops_talking_is_dropped(tmp_path, monkeypatch):
+    monkeypatch.setattr(office_server, "SOCKET_TIMEOUT_SECONDS", 0.5)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(make_office(tmp_path)))
+    httpd.daemon_threads = True
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        with socket.create_connection(("127.0.0.1", httpd.server_port), timeout=5) as conn:
+            conn.sendall(b"GET /api/state HTTP/1.1\r\nHost: 127.0.0.1\r\n")  # and then nothing
+            assert conn.recv(1024) == b""  # the server hangs up instead of waiting forever
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_stop_only_stops_the_agent_it_names(fake_claude, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_HANG", str(tmp_path / "child.pid"))
+    office = make_office(tmp_path)
+    office.start_task("x")
+
+    with pytest.raises(ValueError):
+        office.stop("reviewer")
+    assert office.agents["worker"]["status"] == "working"
+
+    office.stop("worker")
+    office.wait_idle()
+
+
+def test_snapshot_does_not_share_the_live_verdict(tmp_path):
+    office = make_office(tmp_path)
+    office.verdict = {"approved": False, "issues": [], "sent": False}
+
+    snapshot = office.snapshot()
+    office.verdict["sent"] = True
+
+    assert snapshot["verdict"]["sent"] is False

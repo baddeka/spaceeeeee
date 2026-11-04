@@ -12,7 +12,7 @@ from pathlib import Path
 from reviewer import context
 from reviewer.claude_code import ClaudeCodeRun, ClaudeCodeStopped
 from reviewer.cli import load_config
-from reviewer.llm import BLOCKING, Issue, Verdict, review
+from reviewer.llm import BLOCKING, DEFAULT_EFFORT, Issue, Verdict, review
 
 from .i18n import LANGUAGES, has, t
 from .ideator import (
@@ -188,6 +188,8 @@ class Office:
         self._subscribers: list[queue.Queue] = []
         self._log: deque[dict] = deque(maxlen=LOG_LIMIT)
         self._worker_run: ClaudeCodeRun | None = None
+        # The developer's last reply, so a re-review hears its side about each note.
+        self._worker_reply: str | None = None
         self._ideator_run: ClaudeCodeRun | None = None
         # The idea maker keeps one conversation, so asking again on a topic brings new ideas.
         self._ideator_session: str | None = None
@@ -224,7 +226,8 @@ class Office:
             return {
                 "agents": {k: dict(v) for k, v in self.agents.items()},
                 "task": self.task,
-                "verdict": self.verdict,
+                # A copy: the event is sent later, and by then send_rework may have changed the verdict.
+                "verdict": dict(self.verdict) if self.verdict else None,
                 "workspace": str(self.workspace),
                 "cost_usd": round(self.cost_usd, 4),
                 "topic": self.topic,
@@ -359,7 +362,7 @@ class Office:
             self.agents["worker"]["status"] = "working"
             self._phrase("worker", "reading_task")
             self._phrase("reviewer", "reviewer_waiting")
-            run = self._worker_run = self._new_worker_run(text)
+            run = self._prepare_worker(text)
         if from_idea:
             self._log_entry("ideator", "handoff", self._t("log_idea_handoff", title=self.task_title))
         else:
@@ -367,7 +370,7 @@ class Office:
         self._emit_state()
         self._start(self._work, run)
 
-    def send_rework(self, auto: bool = False) -> None:
+    def send_rework(self) -> None:
         with self._lock:
             self._busy_check()
             if not self.verdict or (self.verdict["approved"] and not self.verdict["issues"]):
@@ -381,7 +384,7 @@ class Office:
             self._phrase("worker", "reading_findings")
             self.agents["reviewer"]["status"] = "idle"
             self._phrase("reviewer", "waiting_for_fixes")
-            run = self._worker_run = self._new_worker_run(prompt)
+            run = self._prepare_worker(prompt)
         self._log_entry("reviewer", "handoff", self._t("log_handoff"))
         self._emit_state()
         self._start(self._work, run)
@@ -393,6 +396,7 @@ class Office:
                 raise ValueError(self._t("no_task_yet"))
             # On a re-review the reviewer checks that its earlier notes were fixed.
             previous = self.verdict["issues"] if self.verdict and self.verdict.get("sent") else None
+            reply = self._worker_reply if previous else None
             self.agents["reviewer"]["status"] = "reviewing"
             self._phrase("reviewer", "looking_at_changes")
         if auto:
@@ -400,7 +404,7 @@ class Office:
         else:
             self._log_entry("user", "request", self._t("log_review_request"))
         self._emit_state()
-        self._start(self._review, previous)
+        self._start(self._review, previous, reply)
 
     def accept(self) -> None:
         with self._lock:
@@ -419,6 +423,8 @@ class Office:
         self._emit_state()
 
     def stop(self, agent: str = "worker") -> None:
+        if agent not in ("worker", "ideator"):
+            raise ValueError(self._t("cannot_stop"))
         with self._lock:
             run = self._ideator_run if agent == "ideator" else self._worker_run
         if run is None:
@@ -492,8 +498,9 @@ class Office:
             self._log_entry("office", "auto", self._t("autopilot_off"))
         self._emit_state()
         if turned_on:
-            # Pick up from wherever the work is now.
+            # Pick up from wherever the work is now: a task in progress, or ideas waiting for one.
             self._autopilot_step()
+            self._autopilot_handoff()
 
     def _autopilot_step(self) -> None:
         """Takes the next step of the work -> review -> fixes loop, if the autopilot is on."""
@@ -522,7 +529,7 @@ class Office:
                 self.request_review(auto=True)
             elif action == "rework":
                 self._log_entry("office", "auto", self._t("autopilot_round", round=rounds, max=limit))
-                self.send_rework(auto=True)
+                self.send_rework()
             elif action == "done":
                 self._log_entry("office", "auto", self._t("autopilot_done", rounds=rounds))
                 self._emit_state()
@@ -559,9 +566,13 @@ class Office:
 
     # ----- agent loops -----
 
-    def _new_worker_run(self, prompt: str) -> ClaudeCodeRun:
-        """The developer's next run. It exists before its thread starts, so Stop works at once."""
-        return ClaudeCodeRun(
+    def _prepare_worker(self, prompt: str) -> ClaudeCodeRun:
+        """Sets up the developer's next run; called under the lock, with the status set to working.
+
+        The run exists before its thread starts, so Stop works from the first moment.
+        """
+        self._worker_reply = None
+        self._worker_run = ClaudeCodeRun(
             # The language goes in every message: a resumed session keeps its original system prompt.
             f"{prompt}\n\n{self._t('reply_in')}",
             cwd=self.workspace,
@@ -573,6 +584,7 @@ class Office:
             accept_edits=True,
             plugin_dirs=self._plugin_dirs["worker"],
         )
+        return self._worker_run
 
     def _work(self, run: ClaudeCodeRun) -> None:
         try:
@@ -593,6 +605,7 @@ class Office:
 
         with self._lock:
             self.session_id = result.session_id or self.session_id
+            self._worker_reply = result.text or None
             self.cost_usd += result.cost_usd or 0
             self.agents["worker"]["skill"] = None
         if result.text:
@@ -629,7 +642,7 @@ class Office:
         self._announce("ideator", "ideas_ready", "ready", count=len(ideas))
         self._autopilot_handoff()
 
-    def _review(self, previous: list[dict] | None = None) -> None:
+    def _review(self, previous: list[dict] | None = None, reply: str | None = None) -> None:
         try:
             ctx = context.collect_diff(self.workspace, base=self.baseline)
             config = load_config(self.workspace)
@@ -660,12 +673,13 @@ class Office:
                     ctx,
                     backend="claude-code",
                     model=self.model,
-                    effort=self.effort or "high",
+                    effort=self.effort or config.get("effort") or DEFAULT_EFFORT,
                     instructions=instructions,
                     cwd=self.workspace,
                     on_event=lambda e: self._on_agent_event("reviewer", e),
                     plugin_dirs=self._plugin_dirs["reviewer"],
                     previous=previous,
+                    developer_reply=reply,
                 )
                 blocking = sum(1 for i in verdict.issues if i.severity in BLOCKING)
                 if verdict.approved:

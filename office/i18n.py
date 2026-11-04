@@ -64,6 +64,7 @@ MESSAGES = {
         "no_task_yet": "Give coderen a task first",
         "nothing_to_accept": "There is nothing to accept yet",
         "worker_not_running": "coderen is not working right now",
+        "cannot_stop": "Only coderen and idearen can be stopped",
         "unknown_language": "Unknown language",
         "bad_rounds": "Rounds must be between 1 and 10",
         # prompts for the worker
@@ -159,6 +160,7 @@ MESSAGES = {
         "no_task_yet": "Сначала дай coderen задачу",
         "nothing_to_accept": "Принимать пока нечего",
         "worker_not_running": "coderen сейчас не работает",
+        "cannot_stop": "Остановить можно только coderen и idearen",
         "unknown_language": "Неизвестный язык",
         "bad_rounds": "Число раундов: от 1 до 10",
         "rework_approved": "checkren одобряет работу, но есть замечания. Пользователь просит их учесть.",

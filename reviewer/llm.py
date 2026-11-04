@@ -87,6 +87,7 @@ def build_prompt(
     ctx: ReviewContext,
     instructions: str | None = None,
     previous: list[dict] | None = None,
+    developer_reply: str | None = None,
 ) -> str:
     parts = [f"# Scope\n{ctx.description}\n"]
 
@@ -102,6 +103,13 @@ def build_prompt(
         for n, issue in enumerate(previous, 1):
             where = f"{issue['file']}:{issue['line']}" if issue.get("line") else issue.get("file", "")
             parts.append(f"{n}. [{issue['severity']}] {where} {issue['title']}: {issue['explanation']}")
+        if developer_reply:
+            parts.append(
+                "\n## The developer's reply\n"
+                "The developer's own account of what it changed, and why it left some notes as they are. "
+                "Check it against the code; accept an explanation only when the code bears it out.\n\n"
+                f"{developer_reply}"
+            )
         parts.append("")
 
     if ctx.checks:
@@ -163,16 +171,18 @@ def review(
     on_event: Callable[[dict], None] | None = None,
     plugin_dirs: list[Path] | None = None,
     previous: list[dict] | None = None,
+    developer_reply: str | None = None,
 ) -> Verdict:
     """Reviews through the Claude API (`backend="api"`) or Claude Code (`"claude-code"`).
 
     `plugin_dirs` gives a Claude Code reviewer extra skills; `previous` lists the notes of the
-    last review so a re-review checks they were fixed.
+    last review so a re-review checks they were fixed, and `developer_reply` is what the
+    developer said about them.
     """
     if not ctx.diff and not ctx.files:
         raise ReviewError("nothing to review: no changes found")
 
-    prompt = build_prompt(ctx, instructions, previous)
+    prompt = build_prompt(ctx, instructions, previous, developer_reply)
     if len(prompt) > MAX_PROMPT_CHARS:
         raise ReviewError(
             f"the change is too large to review in one request ({len(prompt):,} characters); "

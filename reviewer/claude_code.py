@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import signal
 import subprocess
 import threading
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from .processes import kill_tree
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 
@@ -120,21 +121,27 @@ class ClaudeCodeRun:
 
         result: dict | None = None
         other = deque(maxlen=5)  # the last lines that are not events, usually an error message
-        for line in proc.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                other.append(line)
-                continue
-            if not isinstance(event, dict):
-                continue
-            if event.get("type") == "result":
-                result = event
-            if on_event:
-                on_event(event)
+        try:
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    other.append(line)
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if event.get("type") == "result":
+                    result = event
+                if on_event:
+                    on_event(event)
+        except BaseException:
+            # Nobody will read the rest of this run, so it must not go on editing files on its own.
+            kill_tree(proc)
+            proc.wait()
+            raise
 
         returncode = proc.wait()
         writer.join()
@@ -159,15 +166,8 @@ class ClaudeCodeRun:
     def stop(self) -> None:
         with self._lock:
             self._stopped = True
-            if self._proc is None or self._proc.poll() is not None:
-                return
-            if not hasattr(os, "killpg"):  # Windows has no process groups
-                self._proc.terminate()
-                return
-            try:
-                os.killpg(self._proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            if self._proc is not None and self._proc.poll() is None:
+                kill_tree(self._proc)
 
 
 def _write_and_close(stream, text: str) -> None:

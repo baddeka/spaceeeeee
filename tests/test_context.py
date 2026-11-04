@@ -3,7 +3,7 @@ import pytest
 from reviewer import context
 from reviewer.context import EMPTY_TREE
 
-from .conftest import git
+from .conftest import git, process_gone
 
 
 def test_repo_without_commits_reviews_every_file(repo):
@@ -135,3 +135,17 @@ def test_collect_files_rejects_paths_outside_the_repo(repo, tmp_path_factory):
 
     with pytest.raises(context.ContextError, match="outside the repository"):
         context.collect_files(repo, [str(outside)])
+
+
+def test_a_timed_out_check_ends_what_it_started(repo):
+    pid_file = repo / "child.pid"
+
+    result = context.run_check(f"sleep 30 & echo $! > {pid_file}; sleep 30", repo, timeout=1)
+
+    assert result.timed_out
+    assert process_gone(int(pid_file.read_text()))
+
+
+def test_a_missing_folder_is_not_reported_as_missing_git(tmp_path):
+    with pytest.raises(context.ContextError, match="not a folder"):
+        context.collect_diff(tmp_path / "typo")

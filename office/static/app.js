@@ -200,6 +200,7 @@ function applyLanguage(next) {
   document.querySelectorAll(".feed .who").forEach((el) => {
     el.textContent = `${S().names[el.dataset.agent] || el.dataset.agent} · ${el.dataset.time}`;
   });
+  if (drawerAgent) renderDrawerLog();
 }
 
 // ---------- rendering ----------
@@ -371,7 +372,13 @@ function ideaCard(idea, index, t) {
   return li;
 }
 
+let verdictKey = "";
+
 function renderVerdict(v) {
+  // Rebuild only when the verdict changes, so text someone is selecting stays selected.
+  const key = JSON.stringify([lang, v]);
+  if (key === verdictKey) return;
+  verdictKey = key;
   const t = S();
   const box = $("verdict");
   box.hidden = !v;
@@ -446,6 +453,7 @@ function addLog(entry) {
   const feed = $("feed");
   const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
   feed.appendChild(logItem(entry));
+  if (feed.children.length > LOG_KEEP) feed.firstElementChild.remove();
   $("feed-empty").hidden = true;
   if (nearBottom) feed.scrollTop = feed.scrollHeight;
   if (drawerAgent && entry.agent === drawerAgent) renderDrawerLog();
@@ -459,6 +467,7 @@ function openDrawer(agent, opener) {
   const drawer = $("drawer");
   drawer.dataset.agent = agent;
   renderDrawer();
+  renderDrawerLog();
   window.OfficeScene?.drawPortrait($("drawer-portrait"), agent);
   document.body.classList.add("drawer-open");
   drawer.classList.add("open");
@@ -507,9 +516,9 @@ function renderDrawer() {
       return li;
     }));
   }
-  renderDrawerLog();
 }
 
+// The agent's own activity; rebuilt only when it gets a new entry, not on every state update.
 function renderDrawerLog() {
   const list = $("drawer-log");
   const mine = log.filter((e) => e.agent === drawerAgent).slice(-40);
@@ -521,7 +530,6 @@ function renderDrawerLog() {
     return;
   }
   list.replaceChildren(...mine.map(logItem));
-  list.scrollTop = list.scrollHeight;
 }
 
 // Keep Tab inside the open drawer.
@@ -577,6 +585,7 @@ function connect() {
     log.length = 0;
     $("feed").replaceChildren();
     $("feed-empty").hidden = false;
+    if (drawerAgent) renderDrawerLog();
   };
   events.onerror = () => {
     conn.dataset.state = "offline";

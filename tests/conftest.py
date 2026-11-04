@@ -1,5 +1,8 @@
+import os
 import subprocess
+import time
 from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -31,3 +34,26 @@ class FakeClient:
     def _stream(self, **kwargs):
         self.requests.append(kwargs)
         yield SimpleNamespace(get_final_message=lambda: self.message)
+
+
+def process_gone(pid, timeout=5.0):
+    """Waits until a process has exited; True when it did within the timeout."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        # A killed child stays a zombie until something reaps it; for these tests it is gone.
+        stat = Path(f"/proc/{pid}/stat")
+        if stat.exists() and stat.read_text().rsplit(")", 1)[-1].split()[0] == "Z":
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def wait_for_file(path, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while not path.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return path.read_text()
