@@ -82,7 +82,9 @@ def make_handler(office: Office, allow_remote: bool = False):
                 "/api/review": office.request_review,
                 "/api/rework": office.send_rework,
                 "/api/accept": office.accept,
-                "/api/stop": office.stop,
+                "/api/stop": lambda: office.stop(str(body.get("agent", "worker"))),
+                "/api/ideas": lambda: office.generate_ideas(str(body.get("topic", ""))),
+                "/api/handoff": lambda: office.hand_off(body.get("index")),
                 "/api/lang": lambda: office.set_language(str(body.get("lang", ""))),
                 "/api/autopilot": lambda: office.set_autopilot(
                     body.get("enabled") is True, body.get("max_rounds")
@@ -131,7 +133,7 @@ def make_handler(office: Office, allow_remote: bool = False):
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="ai-office",
-        description="Two Claude agents in an office: one writes code, the other reviews it on request.",
+        description="Three Claude agents in an office: one comes up with ideas, one writes code, one reviews it.",
     )
     p.add_argument("--workspace", default="workspace", help="project folder the worker edits (default: ./workspace)")
     p.add_argument("--port", type=int, default=8000)

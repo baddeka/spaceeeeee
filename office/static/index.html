@@ -49,8 +49,27 @@
               <span class="status-text" id="status-reviewer"></span>
             </button>
           </div>
+
+          <div class="agent" id="desk-ideator" data-agent="ideator" data-status="idle">
+            <div class="bubble" id="bubble-ideator"></div>
+            <button type="button" class="nameplate" id="plate-ideator" data-drawer="ideator" data-i18n-title="open_drawer">
+              <span class="dot"></span><strong data-i18n="ideator_plate">IDEA MAKER</strong>
+              <span class="status-text" id="status-ideator"></span>
+            </button>
+          </div>
         </div>
       </div>
+
+      <form class="panel ideas" id="ideas-form">
+        <label for="topic-input" data-i18n="topic_label">TOPIC FOR IDEAS</label>
+        <div class="topic-row">
+          <input id="topic-input" type="text" autocomplete="off" maxlength="300" data-i18n-placeholder="topic_placeholder">
+          <button type="submit" class="btn ideas-btn" id="btn-ideas" data-i18n="btn_ideas">Get ideas</button>
+          <button type="button" class="btn ghost" id="btn-ideas-stop" data-i18n="btn_stop">Stop</button>
+        </div>
+        <p class="ideas-topic" id="ideas-topic"></p>
+        <ol class="idea-cards" id="idea-cards"></ol>
+      </form>
 
       <form class="panel task" id="task-form">
         <label for="task-input" data-i18n="task_label">TASK FOR THE DEVELOPER</label>

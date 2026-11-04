@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Stand-in for the `claude` CLI in tests. Behaves like `claude -p --output-format stream-json`.
 
-Reads FAKE_CLAUDE_LOG (where to append the received args) and FAKE_CLAUDE_REVIEW
-(the structured review to return when called with --json-schema).
+Reads FAKE_CLAUDE_LOG (where to append the received args), FAKE_CLAUDE_REVIEW (the review to
+return when called with the review schema), FAKE_CLAUDE_IDEAS (the ideas to return when called
+with the ideas schema), FAKE_CLAUDE_SKILL (a skill the worker loads) and FAKE_CLAUDE_FAIL.
 """
 
 import json
@@ -22,6 +23,27 @@ def emit(event):
     print(json.dumps(event), flush=True)
 
 
+def result(text, structured=None, cost=0.01):
+    emit({"type": "result", "subtype": "success", "is_error": False, "result": text,
+          "structured_output": structured, "session_id": session, "total_cost_usd": cost,
+          "modelUsage": {"claude-test": {}}})
+
+
+DEFAULT_IDEAS = {
+    "ideas": [
+        {"title": "Habit tracker CLI", "pitch": "Track daily habits from the terminal.",
+         "why": "No account, works offline.", "scope": "small",
+         "task": "Build habits.py: add, done, and streak commands, stored in a JSON file. Tests for each."},
+        {"title": "Focus timer page", "pitch": "A one-page pomodoro timer.",
+         "why": "No ads, works on phones.", "scope": "small",
+         "task": "Build index.html with a 25/5 timer, start/pause/reset, and a sound at the end."},
+        {"title": "Expense splitter", "pitch": "Split shared costs among friends.",
+         "why": "Shows who owes whom in the fewest payments.", "scope": "medium",
+         "task": "Build split.py that reads expenses.csv and prints the minimal set of payments."},
+    ],
+    "recommended": 1,
+}
+
 session = "sess-1"
 emit({"type": "system", "subtype": "init", "session_id": session})
 
@@ -29,14 +51,20 @@ if os.environ.get("FAKE_CLAUDE_FAIL"):
     print("boom", file=sys.stderr)
     sys.exit(1)
 
-if "--json-schema" in args:
+schema = args[args.index("--json-schema") + 1] if "--json-schema" in args else ""
+
+if '"ideas"' in schema:
+    ideas = json.loads(os.environ.get("FAKE_CLAUDE_IDEAS", json.dumps(DEFAULT_IDEAS)))
+    emit({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Skill", "input": {"skill": "ideator-skills:brainstorm"}},
+    ]}})
+    result(json.dumps(ideas), ideas)
+elif schema:
     review = json.loads(os.environ.get("FAKE_CLAUDE_REVIEW", '{"summary": "ok", "issues": []}'))
     emit({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Read", "input": {"file_path": "app.py"}},
     ]}})
-    emit({"type": "result", "subtype": "success", "is_error": False, "result": json.dumps(review),
-          "structured_output": review, "session_id": session, "total_cost_usd": 0.01,
-          "modelUsage": {"claude-test": {}}})
+    result(json.dumps(review), review)
 else:
     if skill := os.environ.get("FAKE_CLAUDE_SKILL"):
         emit({"type": "assistant", "message": {"content": [
@@ -47,5 +75,4 @@ else:
         {"type": "tool_use", "name": "Write", "input": {"file_path": str(Path.cwd() / "app.py")}},
         {"type": "text", "text": "Created app.py with a hello world."},
     ]}})
-    emit({"type": "result", "subtype": "success", "is_error": False, "result": "Done: app.py prints hello. Run it with python3 app.py.",
-          "session_id": session, "total_cost_usd": 0.02, "modelUsage": {"claude-test": {}}})
+    result("Done: app.py prints hello. Run it with python3 app.py.", cost=0.02)

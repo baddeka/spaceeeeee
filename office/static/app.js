@@ -4,14 +4,21 @@ const $ = (id) => document.getElementById(id);
 
 const STRINGS = {
   en: {
-    names: { worker: "Developer", reviewer: "Reviewer", user: "You", office: "Office" },
-    status: { idle: "free", working: "working", reviewing: "reviewing", approved: "approved", rejected: "sent back" },
+    names: { worker: "Developer", reviewer: "Reviewer", ideator: "Idea maker", user: "You", office: "Office" },
+    status: {
+      idle: "free", working: "working", reviewing: "reviewing", approved: "approved", rejected: "sent back",
+      thinking: "thinking", ready: "ideas ready",
+    },
     static: {
       connecting: "connecting…",
       cost_title: "Cost estimated by Claude Code; with a subscription it uses your limits, not money",
-      scene_label: "Pixel office: the developer and the reviewer at their desks. Click an agent to see its skills.",
+      scene_label: "Pixel office: the developer, the reviewer and the idea maker at their desks. Click an agent to see its skills.",
       worker_plate: "DEVELOPER",
       reviewer_plate: "REVIEWER",
+      ideator_plate: "IDEA MAKER",
+      topic_label: "TOPIC FOR IDEAS",
+      topic_placeholder: "For example: tools for students before exams",
+      btn_ideas: "Get ideas",
       open_drawer: "Open skills and activity",
       task_label: "TASK FOR THE DEVELOPER",
       task_placeholder: "For example: build a Python CLI that counts words in a file, with tests",
@@ -60,16 +67,30 @@ const STRINGS = {
     error_status: (code) => `Error ${code}`,
     no_connection: "Cannot reach the server",
     empty_task: "Write what needs to be done",
+    empty_topic: "Write a topic for the ideas",
+    ideas_for: (topic) => `Ideas on “${topic}”`,
+    recommended: "recommended",
+    scope: { small: "small", medium: "medium", large: "large" },
+    brief: "Brief for the developer",
+    hand_off: "Give to the developer",
+    handed: "With the developer",
   },
   ru: {
-    names: { worker: "Исполнитель", reviewer: "Ревьюер", user: "Ты", office: "Офис" },
-    status: { idle: "свободен", working: "работает", reviewing: "проверяет", approved: "одобрил", rejected: "вернул на доработку" },
+    names: { worker: "Исполнитель", reviewer: "Ревьюер", ideator: "Генератор идей", user: "Ты", office: "Офис" },
+    status: {
+      idle: "свободен", working: "работает", reviewing: "проверяет", approved: "одобрил", rejected: "вернул на доработку",
+      thinking: "думает", ready: "идеи готовы",
+    },
     static: {
       connecting: "подключаюсь…",
       cost_title: "Стоимость по оценке Claude Code; с подпиской списываются лимиты, а не деньги",
-      scene_label: "Пиксельный офис: исполнитель и ревьюер за своими столами. Нажми на агента, чтобы увидеть его навыки.",
+      scene_label: "Пиксельный офис: исполнитель, ревьюер и генератор идей за своими столами. Нажми на агента, чтобы увидеть его навыки.",
       worker_plate: "ИСПОЛНИТЕЛЬ",
       reviewer_plate: "РЕВЬЮЕР",
+      ideator_plate: "ГЕНЕРАТОР ИДЕЙ",
+      topic_label: "ТЕМА ДЛЯ ИДЕЙ",
+      topic_placeholder: "Например: инструменты для студентов перед сессией",
+      btn_ideas: "Придумать идеи",
       open_drawer: "Открыть навыки и действия",
       task_label: "ЗАДАЧА ДЛЯ ИСПОЛНИТЕЛЯ",
       task_placeholder: "Например: сделай CLI на Python, который считает слова в файле, и напиши к нему тесты",
@@ -118,6 +139,13 @@ const STRINGS = {
     error_status: (code) => `Ошибка ${code}`,
     no_connection: "Нет связи с сервером",
     empty_task: "Напиши, что нужно сделать",
+    empty_topic: "Напиши тему для идей",
+    ideas_for: (topic) => `Идеи по теме «${topic}»`,
+    recommended: "рекомендую",
+    scope: { small: "небольшая", medium: "средняя", large: "большая" },
+    brief: "ТЗ для исполнителя",
+    hand_off: "Передать исполнителю",
+    handed: "У исполнителя",
   },
 };
 
@@ -180,8 +208,9 @@ function render(s) {
   $("workspace").title = s.workspace;
   $("cost").textContent = formatCost(s.cost_usd);
 
-  for (const agent of ["worker", "reviewer"]) {
+  for (const agent of ["worker", "reviewer", "ideator"]) {
     const a = s.agents[agent];
+    if (!a) continue;
     $(`desk-${agent}`).dataset.status = a.status;
     setText($(`bubble-${agent}`), a.bubble);
     $(`status-${agent}`).textContent = t.status[a.status] || a.status;
@@ -212,6 +241,7 @@ function render(s) {
   $("hint").textContent = hint;
 
   renderAutopilot(s.autopilot);
+  renderIdeas(s, busy);
   renderVerdict(s.verdict);
   if (drawerAgent) renderDrawer();
   window.OfficeScene?.setState(s);
@@ -227,6 +257,78 @@ function renderAutopilot(pilot) {
   $("autopilot-rounds").value = String(pilot.max_rounds);
   $("autopilot-status").textContent =
     stateName === "running" ? t.running(pilot.round, pilot.max_rounds) : t[stateName];
+}
+
+let ideasKey = "";
+
+function renderIdeas(s, busy) {
+  const t = S();
+  const thinking = s.agents.ideator?.status === "thinking";
+  $("btn-ideas").disabled = thinking;
+  $("btn-ideas-stop").disabled = !thinking;
+  $("ideas-topic").textContent = s.ideas && s.topic ? t.ideas_for(s.topic) : "";
+
+  const list = $("idea-cards");
+  // Rebuild only when the ideas change, so open briefs stay open between updates.
+  const key = JSON.stringify([lang, s.ideas]);
+  if (key !== ideasKey) {
+    const titles = (ideas) => (ideas || []).map((i) => i.title).join("\n");
+    const sameIdeas = ideasKey && titles(JSON.parse(ideasKey)[1]) === titles(s.ideas);
+    const open = sameIdeas ? [...list.querySelectorAll("details")].map((d) => d.open) : [];
+    ideasKey = key;
+    list.replaceChildren(...(s.ideas || []).map((idea, index) => ideaCard(idea, index, t)));
+    // A handed-off idea changes the list, but the briefs someone opened stay open.
+    list.querySelectorAll("details").forEach((d, i) => (d.open = Boolean(open[i])));
+  }
+  list.querySelectorAll(".idea-handoff").forEach((button) => {
+    const idea = s.ideas[Number(button.dataset.index)];
+    button.disabled = busy || idea.handed;
+  });
+}
+
+function ideaCard(idea, index, t) {
+  const li = document.createElement("li");
+  li.className = "idea";
+  li.dataset.recommended = String(idea.recommended);
+  li.dataset.handed = String(idea.handed);
+
+  const head = document.createElement("div");
+  head.className = "idea-head";
+  const title = document.createElement("strong");
+  title.textContent = idea.title;
+  const scope = document.createElement("span");
+  scope.className = `scope ${idea.scope}`;
+  scope.textContent = t.scope[idea.scope] || idea.scope;
+  head.append(title, scope);
+  if (idea.recommended) {
+    const star = document.createElement("span");
+    star.className = "star";
+    star.textContent = `★ ${t.recommended}`;
+    head.append(star);
+  }
+
+  const pitch = document.createElement("p");
+  pitch.textContent = idea.pitch;
+  const why = document.createElement("p");
+  why.className = "why";
+  why.textContent = idea.why;
+
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = t.brief;
+  const brief = document.createElement("div");
+  brief.className = "brief";
+  brief.textContent = idea.task;
+  details.append(summary, brief);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn primary idea-handoff";
+  button.dataset.index = String(index);
+  button.textContent = idea.handed ? `✓ ${t.handed}` : t.hand_off;
+
+  li.append(head, pitch, why, details, button);
+  return li;
 }
 
 function renderVerdict(v) {
@@ -462,7 +564,23 @@ $("task-input").addEventListener("keydown", (e) => {
 $("btn-review").addEventListener("click", () => post("/api/review"));
 $("btn-rework").addEventListener("click", () => post("/api/rework"));
 $("btn-accept").addEventListener("click", () => post("/api/accept"));
-$("btn-stop").addEventListener("click", () => post("/api/stop"));
+$("btn-stop").addEventListener("click", () => post("/api/stop", { agent: "worker" }));
+
+$("ideas-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("topic-input");
+  if (!input.value.trim()) {
+    toast(S().empty_topic);
+    input.focus();
+    return;
+  }
+  post("/api/ideas", { topic: input.value });
+});
+$("btn-ideas-stop").addEventListener("click", () => post("/api/stop", { agent: "ideator" }));
+$("idea-cards").addEventListener("click", (e) => {
+  const button = e.target.closest(".idea-handoff");
+  if (button && !button.disabled) post("/api/handoff", { index: Number(button.dataset.index) });
+});
 
 function sendAutopilot() {
   return post("/api/autopilot", {

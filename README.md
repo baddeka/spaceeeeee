@@ -4,10 +4,10 @@
 
 Two tools built on Claude that run on a **Claude subscription (Pro or Max), with no API key**:
 
-- **AI Office** is a pixel-art web office with two agents. The developer writes code for your task; the reviewer checks it when you ask, or on its own with the autopilot, and sends it back for fixes.
+- **AI Office** is a pixel-art web office with three agents. The idea maker proposes what to build on a topic you give; the developer writes the code; the reviewer checks it when you ask, or on its own with the autopilot, and sends it back for fixes.
 - **ai-review** is a command-line reviewer: it checks a diff, gives a verdict of APPROVED or CHANGES REQUESTED, and sets the exit code for CI.
 
-![AI Office: the developer and the reviewer at their desks, a verdict with two notes, and the log](docs/office.png)
+![AI Office: the idea maker, the developer and the reviewer at their desks, ideas on a topic, and the log](docs/office.png)
 
 ## Install
 
@@ -36,9 +36,15 @@ Then open http://127.0.0.1:8000.
 
 If the folder does not exist, it is created with a git repository. The office makes its own commits: `office: before task` before the first task and `office: accepted: …` when you accept.
 
+### Idea maker
+
+Write a topic under **Topic for ideas** and press **Get ideas**. The idea maker looks at the workspace, loads its skills and proposes 3 to 5 ideas, each with a pitch, why it is worth building, its scope (small, medium or large) and a complete brief for the developer. One is marked recommended.
+
+**Give to the developer** hands an idea over as the next task, and a sticky note flies across the room. The idea maker only reads files and may use web search, so it can think while the others work. Asking again continues its conversation, so you get new ideas instead of the same ones.
+
 ### Autopilot
 
-Turn on **Autopilot** and the loop runs by itself: the developer finishes, the reviewer is called, and rejected work goes back for fixes, up to the round limit you set. It stops when the reviewer approves, when the limit is reached, on an error, or when you press Stop. Accepting the work always stays with you. The **AUTO** sign above the door lights up while it runs.
+Turn on **Autopilot** and the loop runs by itself: new ideas send the recommended one to the developer when the office is free, the developer finishes, the reviewer is called, and rejected work goes back for fixes, up to the round limit you set. It stops when the reviewer approves, when the limit is reached, on an error, or when you press Stop. Accepting the work always stays with you. The **AUTO** sign above the door lights up while it runs.
 
 ### Skills
 
@@ -63,6 +69,12 @@ Each agent has its own skills: Claude Code skills, loaded only into that agent's
 | `frontend-review` | Checks UI code: unsafe rendering, accessibility, layout, states |
 | `verify-fixes` | On a re-review, checks that each earlier note is really fixed |
 
+| Idea maker | What it does |
+|---|---|
+| `brainstorm` | Generates many raw ideas, then keeps a few distinct, buildable ones |
+| `market-check` | Checks what already exists and finds what is missing |
+| `write-brief` | Writes a brief the developer can build from without questions |
+
 The skills live in `office/skills/<role>/skills/<name>/SKILL.md`. To add one, create a folder with a `SKILL.md` there; its `description` tells the agent when to use it. A label for the page in each language can go in `office/i18n.py` as `skill_<name>`.
 
 ### Options
@@ -77,7 +89,7 @@ The skills live in `office/skills/<role>/skills/<name>/SKILL.md`. To add one, cr
 | `--no-bash` | do not let the developer run shell commands |
 | `--no-skills` | run the agents without the office's skills |
 
-**Safety.** The developer can run commands on your computer; `--no-bash` turns that off. That is why the server listens only on `127.0.0.1` and rejects requests from other sites: it checks `Host` and `Origin` and accepts only JSON. Do not expose it to a network unless you need to.
+**Safety.** The developer can run commands on your computer; `--no-bash` turns that off. The idea maker may read web pages, so its briefs are untrusted text: each brief tells the developer to stay in the project folder and not to download, install or send anything, but that is an instruction, not a sandbox. With the autopilot on, a brief reaches the developer before you read it; use `--no-bash` or keep the autopilot off when that matters. That is why the server listens only on `127.0.0.1` and rejects requests from other sites: it checks `Host` and `Origin` and accepts only JSON. Do not expose it to a network unless you need to.
 
 **Limits.** Each task and each review uses your subscription limits. The dollar amount in the header is Claude Code's estimate, not a charge.
 
@@ -142,7 +154,8 @@ reviewer/
   claude_code.py  runs `claude -p` and streams its stream-json events
   cli.py          the ai-review command
 office/
-  agents.py       the office: developer, reviewer, autopilot, skills, git snapshots
+  agents.py       the office: idea maker, developer, reviewer, autopilot, skills, git snapshots
+  ideator.py      the idea maker's prompt and the schema of its ideas
   i18n.py         English and Russian texts of the office
   server.py       HTTP server and the event stream (SSE) for the page
   skills/         each agent's skills as a Claude Code plugin

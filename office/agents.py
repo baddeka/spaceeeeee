@@ -1,4 +1,4 @@
-"""The office: a worker agent that writes code and a reviewer agent that checks it."""
+"""The office: an idea maker, a worker that writes code, and a reviewer that checks it."""
 
 from __future__ import annotations
 
@@ -16,12 +16,21 @@ from reviewer.cli import load_config
 from reviewer.llm import BLOCKING, Issue, ReviewError, Verdict, review
 
 from .i18n import LANGUAGES, has, t
+from .ideator import (
+    IDEATOR_PROMPT,
+    IDEATOR_TOOLS,
+    IdeasError,
+    IdeasOutput,
+    idea_request,
+    parse_ideas,
+    task_from_idea,
+)
 
 WORKER_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Skill"]
 
 # Each role's skills are a Claude Code plugin, loaded only into that agent's runs.
 SKILLS_DIR = Path(__file__).parent / "skills"
-ROLES = ("worker", "reviewer")
+ROLES = ("worker", "reviewer", "ideator")
 
 WORKER_PROMPT = """\
 You are the developer in a two-person office. You write code in the current directory.
@@ -176,21 +185,29 @@ class Office:
         self._subscribers: list[queue.Queue] = []
         self._log: deque[dict] = deque(maxlen=LOG_LIMIT)
         self._worker_run: ClaudeCodeRun | None = None
+        self._ideator_run: ClaudeCodeRun | None = None
+        # The idea maker keeps one conversation, so asking again on a topic brings new ideas.
+        self._ideator_session: str | None = None
         self._threads: list[threading.Thread] = []
 
         self.agents = {
             "worker": {"status": "idle", "bubble": self._t("worker_waiting"), "skill": None},
             "reviewer": {"status": "idle", "bubble": self._t("reviewer_waiting"), "skill": None},
+            "ideator": {"status": "idle", "bubble": self._t("ideator_waiting"), "skill": None},
         }
         # The phrase behind each bubble, so a language switch can say it again; None for live text.
         self._bubble_src: dict[str, tuple[str, dict] | None] = {
             "worker": ("worker_waiting", {}),
             "reviewer": ("reviewer_waiting", {}),
+            "ideator": ("ideator_waiting", {}),
         }
         self.session_id: str | None = None
         self.baseline: str | None = None
         self.task: str | None = None
+        self.task_title: str | None = None
         self.verdict: dict | None = None
+        self.topic: str | None = None
+        self.ideas: list[dict] | None = None
         self.cost_usd = 0.0
         # halted: why the current autopilot run ended ("approved", "limit", "error", "stopped").
         self.autopilot = {"enabled": False, "max_rounds": DEFAULT_ROUNDS, "round": 0, "halted": None}
@@ -208,6 +225,8 @@ class Office:
                 "workspace": str(self.workspace),
                 "cost_usd": round(self.cost_usd, 4),
                 "has_session": self.session_id is not None,
+                "topic": self.topic,
+                "ideas": [dict(idea) for idea in self.ideas] if self.ideas else None,
                 "lang": self.lang,
                 "autopilot": dict(self.autopilot),
                 "skills": {
@@ -326,7 +345,7 @@ class Office:
         self._threads.append(thread)
         thread.start()
 
-    def start_task(self, text: str) -> None:
+    def start_task(self, text: str, title: str | None = None, from_idea: bool = False) -> None:
         text = text.strip()
         if not text:
             raise ValueError(self._t("empty_task"))
@@ -336,13 +355,17 @@ class Office:
                 # Everything after this commit is the worker's change, which is what gets reviewed.
                 self.baseline = self._commit("office: before task")
             self.task = text
+            self.task_title = (title or text.splitlines()[0])[:60]
             self.verdict = None
             self.autopilot["round"] = 0
             self.autopilot["halted"] = None
             self.agents["worker"]["status"] = "working"
             self._phrase("worker", "reading_task")
             self._phrase("reviewer", "reviewer_waiting")
-        self._log_entry("user", "task", text)
+        if from_idea:
+            self._log_entry("ideator", "handoff", self._t("log_idea_handoff", title=self.task_title))
+        else:
+            self._log_entry("user", "task", text)
         self._emit_state()
         self._start(self._work, text)
 
@@ -385,8 +408,10 @@ class Office:
             self._busy_check()
             if self.baseline is None:
                 raise ValueError(self._t("nothing_to_accept"))
-            title = (self.task or "work").splitlines()[0][:60]
-            self.baseline = self._commit(f"office: accepted: {title}")
+            self.baseline = self._commit(f"office: accepted: {self.task_title or 'work'}")
+            # Accepted work is done; the next task, or the next idea, starts from this commit.
+            self.task = None
+            self.task_title = None
             self.verdict = None
             self._phrase("worker", "accepted_waiting")
             self.agents["reviewer"]["status"] = "idle"
@@ -394,12 +419,45 @@ class Office:
         self._log_entry("user", "accept", self._t("log_accept", commit=self.baseline[:8]))
         self._emit_state()
 
-    def stop(self) -> None:
+    def stop(self, agent: str = "worker") -> None:
         with self._lock:
-            run = self._worker_run
+            run = self._ideator_run if agent == "ideator" else self._worker_run
         if run is None:
-            raise ValueError(self._t("worker_not_running"))
+            raise ValueError(self._t("ideator_not_running" if agent == "ideator" else "worker_not_running"))
         run.stop()
+
+    def generate_ideas(self, topic: str) -> None:
+        topic = topic.strip()
+        if not topic:
+            raise ValueError(self._t("empty_topic"))
+        with self._lock:
+            # The idea maker only reads, so it may think while the others work.
+            if self.agents["ideator"]["status"] == "thinking":
+                raise Busy(self._t("busy_ideator"))
+            self.agents["ideator"]["status"] = "thinking"
+            self._phrase("ideator", "ideator_thinking", topic=_shorten(topic, 40))
+        self._log_entry("user", "topic", self._t("log_topic", topic=topic))
+        self._emit_state()
+        self._start(self._ideate, topic)
+
+    def hand_off(self, index) -> None:
+        """Gives one of the ideas to the developer as its next task."""
+        with self._lock:
+            if not self.ideas:
+                raise ValueError(self._t("no_ideas"))
+            try:
+                n = int(index)
+            except (TypeError, ValueError):
+                raise ValueError(self._t("bad_idea")) from None
+            if not 0 <= n < len(self.ideas):
+                raise ValueError(self._t("bad_idea"))
+            self._busy_check()
+            idea = self.ideas[n]
+            text = task_from_idea(idea, self.topic or "", self._t("idea_intro"), self._t("idea_guard"))
+            self.start_task(text, title=idea["title"], from_idea=True)
+            idea["handed"] = True
+            self._phrase("ideator", "handed_off", title=_shorten(idea["title"], 40))
+        self._emit_state()
 
     def set_autopilot(self, enabled: bool, max_rounds: int | None = None) -> None:
         with self._lock:
@@ -464,6 +522,22 @@ class Office:
             # Someone else started something in between; the next finished run steps again.
             pass
 
+    def _autopilot_handoff(self) -> None:
+        """With the autopilot on, fresh ideas go to the developer when the office is free."""
+        with self._lock:
+            if not self.autopilot["enabled"] or not self.ideas or self.task is not None:
+                return
+            if self.agents["worker"]["status"] == "working" or self.agents["reviewer"]["status"] == "reviewing":
+                return
+            best = next((n for n, i in enumerate(self.ideas) if i["recommended"] and not i["handed"]), None)
+            if best is None:
+                return
+        self._log_entry("office", "auto", self._t("autopilot_idea"))
+        try:
+            self.hand_off(best)
+        except (Busy, ValueError):
+            pass
+
     def _halt_autopilot(self, reason: str) -> None:
         with self._lock:
             if not self.autopilot["enabled"] or self.autopilot["halted"]:
@@ -512,6 +586,47 @@ class Office:
             self._log_entry("worker", "result", result.text)
         self._announce("worker", "done", "idle")
         self._autopilot_step()
+
+    def _ideate(self, topic: str) -> None:
+        run = ClaudeCodeRun(
+            # Like the worker, the language goes in every message of the resumed conversation.
+            idea_request(topic, self._t("reply_in")),
+            cwd=self.workspace,
+            tools=IDEATOR_TOOLS,
+            system_prompt=IDEATOR_PROMPT,
+            json_schema=IdeasOutput.model_json_schema(),
+            model=self.model,
+            effort=self.effort,
+            resume=self._ideator_session,
+            plugin_dirs=self._plugin_dirs["ideator"],
+        )
+        with self._lock:
+            self._ideator_run = run
+        try:
+            result = run.run(lambda e: self._on_agent_event("ideator", e))
+            ideas = parse_ideas(result.structured_output)
+        except (ClaudeCodeError, IdeasError, OSError) as e:
+            stopped = str(e) == "stopped"
+            self._log_entry("ideator", "error", self._t("log_stopped") if stopped else str(e))
+            with self._lock:
+                self.agents["ideator"]["skill"] = None
+            self._announce("ideator", "stopped" if stopped else "ideas_failed", "idle")
+            return
+        finally:
+            with self._lock:
+                self._ideator_run = None
+
+        with self._lock:
+            self._ideator_session = result.session_id or self._ideator_session
+            self.cost_usd += result.cost_usd or 0
+            # The topic changes together with its ideas, so a stopped or failed run leaves both as they were.
+            self.topic = topic
+            self.ideas = ideas
+            self.agents["ideator"]["skill"] = None
+        titles = "; ".join(idea["title"] for idea in ideas)
+        self._log_entry("ideator", "ideas", self._t("log_ideas", count=len(ideas), topic=topic, titles=titles))
+        self._announce("ideator", "ideas_ready", "ready", count=len(ideas))
+        self._autopilot_handoff()
 
     def _review(self, previous: list[dict] | None = None) -> None:
         try:

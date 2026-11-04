@@ -77,7 +77,7 @@ def test_skills_can_be_turned_off(fake_claude, tmp_path):
     office.wait_idle()
 
     assert "--plugin-dir" not in fake_claude()[0]["args"]
-    assert office.snapshot()["skills"] == {"worker": [], "reviewer": []}
+    assert office.snapshot()["skills"] == {"worker": [], "reviewer": [], "ideator": []}
 
 
 def test_skill_in_use_is_tracked_and_logged(fake_claude, tmp_path, monkeypatch):
