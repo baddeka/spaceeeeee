@@ -466,3 +466,23 @@ def test_snapshot_does_not_share_the_live_verdict(tmp_path):
     office.verdict["sent"] = True
 
     assert snapshot["verdict"]["sent"] is False
+
+
+def test_ipv6_addresses_get_an_ipv6_server():
+    assert office_server.server_class("::1").address_family == socket.AF_INET6
+    assert office_server.server_class("::").address_family == socket.AF_INET6
+    assert office_server.server_class("127.0.0.1").address_family == socket.AF_INET
+
+
+def test_shutdown_stops_the_running_agents(fake_claude, tmp_path, monkeypatch):
+    pid_file = tmp_path / "child.pid"
+    monkeypatch.setenv("FAKE_CLAUDE_HANG", str(pid_file))
+    office = make_office(tmp_path)
+    office.start_task("x")
+    child = int(wait_for_file(pid_file))
+
+    office.shutdown()
+    office.wait_idle()
+
+    assert office.agents["worker"]["status"] == "idle"
+    assert process_gone(child)

@@ -15,6 +15,7 @@ from .context import ReviewContext
 
 DEFAULT_MODEL = "claude-opus-5-5"
 DEFAULT_EFFORT = "high"
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 # Severities that block approval. The model rates each issue; the code decides.
 BLOCKING = {"critical", "major"}
@@ -103,14 +104,19 @@ def build_prompt(
         for n, issue in enumerate(previous, 1):
             where = f"{issue['file']}:{issue['line']}" if issue.get("line") else issue.get("file", "")
             parts.append(f"{n}. [{issue['severity']}] {where} {issue['title']}: {issue['explanation']}")
-        if developer_reply:
-            parts.append(
-                "\n## The developer's reply\n"
-                "The developer's own account of what it changed, and why it left some notes as they are. "
-                "Check it against the code; accept an explanation only when the code bears it out.\n\n"
-                f"{developer_reply}"
-            )
         parts.append("")
+
+    if developer_reply:
+        # Fenced, so headings in the reply cannot pass for this prompt's own sections.
+        fence = "```"
+        while fence in developer_reply:
+            fence += "`"
+        parts.append(
+            "# The developer's reply\n"
+            "The developer's own account of what it changed, and why it left some notes as they are. "
+            "Check it against the code; accept an explanation only when the code bears it out.\n"
+            f"{fence}\n{developer_reply}\n{fence}\n"
+        )
 
     if ctx.checks:
         parts.append("# Check results")

@@ -13,6 +13,8 @@ EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 MAX_FILE_BYTES = 100_000
 MAX_CHECK_OUTPUT_CHARS = 20_000
+# After a timed-out check is killed, how long to wait for the rest of its output.
+KILLED_OUTPUT_SECONDS = 5
 
 
 class ContextError(Exception):
@@ -165,11 +167,29 @@ def run_check(command: str, repo: Path, timeout: float = 600) -> CheckResult:
         output, _ = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         kill_tree(proc, force=True)
-        output, _ = proc.communicate()
-        return CheckResult(command, None, _tail(output)[0], timed_out=True)
+        return CheckResult(command, None, _tail(_killed_output(proc))[0], timed_out=True)
+    except BaseException:
+        # Ctrl+C: the command has its own session, so the terminal's signal never reached it.
+        kill_tree(proc, force=True)
+        proc.wait()
+        raise
 
     output, truncated = _tail(output)
     return CheckResult(command, proc.returncode, output, truncated=truncated)
+
+
+def _killed_output(proc: subprocess.Popen) -> str:
+    """The output of a killed check, without waiting on a process that left its session."""
+    try:
+        output, _ = proc.communicate(timeout=KILLED_OUTPUT_SECONDS)
+        return output
+    except subprocess.TimeoutExpired as e:
+        # Something the command detached (setsid, a daemon) still holds the pipe open.
+        proc.wait()
+        if proc.stdout:
+            proc.stdout.close()
+        partial = e.output or ""
+        return partial.decode("utf-8", "replace") if isinstance(partial, bytes) else partial
 
 
 def _tail(output: str) -> tuple[str, bool]:

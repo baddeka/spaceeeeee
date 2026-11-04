@@ -396,7 +396,8 @@ class Office:
                 raise ValueError(self._t("no_task_yet"))
             # On a re-review the reviewer checks that its earlier notes were fixed.
             previous = self.verdict["issues"] if self.verdict and self.verdict.get("sent") else None
-            reply = self._worker_reply if previous else None
+            # Also when the verdict had no notes, only failing checks: the reply says what was done about them.
+            reply = self._worker_reply if previous is not None else None
             self.agents["reviewer"]["status"] = "reviewing"
             self._phrase("reviewer", "looking_at_changes")
         if auto:
@@ -430,6 +431,13 @@ class Office:
         if run is None:
             raise ValueError(self._t("ideator_not_running" if agent == "ideator" else "worker_not_running"))
         run.stop()
+
+    def shutdown(self) -> None:
+        """Stops the developer and the idea maker, so nothing edits files after the office is gone."""
+        with self._lock:
+            runs = [run for run in (self._worker_run, self._ideator_run) if run is not None]
+        for run in runs:
+            run.stop()
 
     def generate_ideas(self, topic: str) -> None:
         topic = topic.strip()

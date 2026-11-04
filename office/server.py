@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import queue
+import socket
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from reviewer.context import ContextError
+from reviewer.llm import EFFORTS
 
 from .agents import WORKER_TOOLS, Busy, Office
 from .i18n import LANGUAGES
@@ -40,6 +43,25 @@ def page_url(bind_host: str, port: int) -> str:
     """The address to open in a browser: a wildcard bind is reached through localhost."""
     host = "127.0.0.1" if bind_host in WILDCARD_HOSTS else bind_host.strip("[]")
     return f"http://[{host}]:{port}" if ":" in host else f"http://{host}:{port}"
+
+
+class OfficeServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+
+class OfficeServer6(OfficeServer):
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        # "::" should take IPv4 too, so the printed 127.0.0.1 address works.
+        with contextlib.suppress(OSError, AttributeError):
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
+def server_class(bind_host: str) -> type[OfficeServer]:
+    """ThreadingHTTPServer speaks IPv4 only; an IPv6 address needs an IPv6 socket."""
+    return OfficeServer6 if ":" in bind_host else OfficeServer
 
 
 def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
@@ -178,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         help="another name the page may be opened by, e.g. a Tailscale name (repeatable)",
     )
     p.add_argument("--model", help="Claude model for all three agents (default: Claude Code's default)")
-    p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
+    p.add_argument("--effort", choices=EFFORTS)
     p.add_argument("--no-bash", action="store_true", help="do not let the worker run shell commands")
     p.add_argument("--lang", choices=LANGUAGES, default="en", help="language of the page and the agents (default: en)")
     p.add_argument("--no-skills", action="store_true", help="run the agents without the office's skills")
@@ -196,15 +218,19 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     hosts = allowed_hosts(args.host, args.allow_host)
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(office, hosts))
-    server.daemon_threads = True
+    bind_host = args.host.strip("[]")
+    server = server_class(bind_host)((bind_host, args.port), make_handler(office, hosts))
     print(f"AI office: {page_url(args.host, server.server_port)}  (workspace: {workspace})")
-    if args.host.strip("[]") not in LOOPBACK_NAMES:
+    if bind_host not in LOOPBACK_NAMES:
         print("warning: listening beyond this machine; anyone who can reach it can run the worker", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        # The agents' processes have their own sessions, so they would outlive the office.
+        office.shutdown()
+        server.server_close()
     return 0
 
 

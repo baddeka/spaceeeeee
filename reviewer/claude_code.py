@@ -15,6 +15,8 @@ from pathlib import Path
 from .processes import kill_tree
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
+# How long an abandoned run gets to exit after SIGTERM before it is killed outright.
+STOP_GRACE_SECONDS = 10
 
 
 class ClaudeCodeError(Exception):
@@ -140,7 +142,12 @@ class ClaudeCodeRun:
         except BaseException:
             # Nobody will read the rest of this run, so it must not go on editing files on its own.
             kill_tree(proc)
-            proc.wait()
+            try:
+                proc.wait(timeout=STOP_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                # It ignored the request, or is stuck writing to the pipe nobody reads any more.
+                kill_tree(proc, force=True)
+                proc.wait()
             raise
 
         returncode = proc.wait()

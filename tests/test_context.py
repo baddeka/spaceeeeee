@@ -1,9 +1,14 @@
+import os
+import signal
+import subprocess
+import time
+
 import pytest
 
 from reviewer import context
 from reviewer.context import EMPTY_TREE
 
-from .conftest import git, process_gone
+from .conftest import git, process_gone, wait_for_file
 
 
 def test_repo_without_commits_reviews_every_file(repo):
@@ -149,3 +154,34 @@ def test_a_timed_out_check_ends_what_it_started(repo):
 def test_a_missing_folder_is_not_reported_as_missing_git(tmp_path):
     with pytest.raises(context.ContextError, match="not a folder"):
         context.collect_diff(tmp_path / "typo")
+
+
+def test_a_check_that_detaches_a_child_does_not_hang_the_review(repo, monkeypatch):
+    # The child leaves the check's session but keeps its output pipe open.
+    monkeypatch.setattr(context, "KILLED_OUTPUT_SECONDS", 0.5)
+    pid_file = repo / "detached.pid"
+    detach = "python3 -c 'import os, time; os.setsid(); time.sleep(30)'"
+    started = time.monotonic()
+
+    result = context.run_check(f"echo before; {detach} & echo $! > {pid_file}; sleep 30", repo, timeout=1)
+
+    try:
+        assert result.timed_out
+        assert time.monotonic() - started < 10
+        assert "before" in result.output
+    finally:
+        os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+def test_an_interrupted_check_ends_what_it_started(repo, monkeypatch):
+    pid_file = repo / "child.pid"
+
+    def interrupted(self, *args, **kwargs):
+        wait_for_file(pid_file)
+        raise KeyboardInterrupt  # Ctrl+C, which never reaches a command in its own session
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        context.run_check(f"sleep 30 & echo $! > {pid_file}; wait", repo)
+
+    assert process_gone(int(pid_file.read_text()))

@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from . import context
-from .llm import DEFAULT_EFFORT, DEFAULT_MODEL, ReviewError, Verdict, review
+from .llm import DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, ReviewError, Verdict, review
 
 CONFIG_FILE = ".ai-review.toml"
 
@@ -50,7 +50,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     p.add_argument(
         "--effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
+        choices=EFFORTS,
         help=f"how hard the model thinks (default: {DEFAULT_EFFORT})",
     )
     p.add_argument("--json", action="store_true", help="print the verdict as JSON")
@@ -73,6 +73,8 @@ def load_config(repo: Path) -> dict:
     checks = config.get("checks", [])
     if not isinstance(checks, list) or not all(isinstance(c, str) for c in checks):
         raise ConfigError(f'{CONFIG_FILE}: `checks` must be a list of commands, e.g. ["pytest -q"]')
+    if "effort" in config and config["effort"] not in EFFORTS:
+        raise ConfigError(f"{CONFIG_FILE}: `effort` must be one of {', '.join(EFFORTS)}")
     return config
 
 

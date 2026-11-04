@@ -45,15 +45,21 @@ def process_gone(pid, timeout=5.0):
         except ProcessLookupError:
             return True
         # A killed child stays a zombie until something reaps it; for these tests it is gone.
-        stat = Path(f"/proc/{pid}/stat")
-        if stat.exists() and stat.read_text().rsplit(")", 1)[-1].split()[0] == "Z":
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[-1].split()[0]
+        except FileNotFoundError:
+            state = None  # reaped just now (the next check sees it), or a system without /proc
+        if state == "Z":
             return True
         time.sleep(0.05)
     return False
 
 
 def wait_for_file(path, timeout=10.0):
+    """Waits until a file has content: it exists, empty, for a moment before it is written."""
     deadline = time.monotonic() + timeout
-    while not path.exists() and time.monotonic() < deadline:
+    while time.monotonic() < deadline:
+        if path.exists() and (text := path.read_text()):
+            return text
         time.sleep(0.05)
     return path.read_text()
