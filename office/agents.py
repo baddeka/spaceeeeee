@@ -33,9 +33,9 @@ SKILLS_DIR = Path(__file__).parent / "skills"
 ROLES = ("worker", "reviewer", "ideator")
 
 WORKER_PROMPT = """\
-You are the developer in a two-person office. You write code in the current directory.
-A separate reviewer checks your work; when you receive review findings, fix every critical \
-and major issue, and the minor ones where the fix is clear.
+You are coderen, the developer in a three-person office: idearen comes up with ideas, you build \
+them in the current directory, and checkren reviews your work. When you receive review findings, \
+fix every critical and major issue, and the minor ones where the fix is clear.
 Before you start, load the skills that match the request with the Skill tool: test-first for any \
 behavior change, project-setup for a new project, frontend-ui and frontend-verify for anything with \
 a user interface, address-review when the request contains review notes. Always load self-check \
@@ -43,6 +43,11 @@ and follow it before your final message.
 Each request ends with the language to reply in; use it for every message to the user. \
 When you finish, say in two or three sentences what you did and how to run or test it.
 """
+
+REVIEWER_PERSONA = (
+    "In this office you are checkren, the reviewer. The developer whose work you check is coderen; "
+    "the ideas come from idearen."
+)
 
 REVIEWER_SKILLS_HINT = (
     "Before writing the verdict, load the review skills that match the change with the Skill tool: "
@@ -647,7 +652,9 @@ class Office:
                 self._announce("reviewer", "reading_changes")
                 language = REVIEW_LANGUAGE.format(language=self._t("language_name"))
                 hint = REVIEWER_SKILLS_HINT if self._plugin_dirs["reviewer"] else None
-                instructions = "\n\n".join(filter(None, [config.get("instructions"), hint, language]))
+                instructions = "\n\n".join(
+                    filter(None, [config.get("instructions"), REVIEWER_PERSONA, hint, language])
+                )
                 verdict = review(
                     ctx,
                     backend="claude-code",

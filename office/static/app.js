@@ -4,47 +4,53 @@ const $ = (id) => document.getElementById(id);
 
 const STRINGS = {
   en: {
-    names: { worker: "Developer", reviewer: "Reviewer", ideator: "Idea maker", user: "You", office: "Office" },
+    names: { worker: "coderen", reviewer: "checkren", ideator: "idearen", user: "You", office: "Office" },
+    roles: { worker: "Developer", reviewer: "Reviewer", ideator: "Idea maker" },
     status: {
-      idle: "free", working: "working", reviewing: "reviewing", approved: "approved", rejected: "sent back",
-      thinking: "thinking", ready: "ideas ready",
+      idle: "resting", working: "working", reviewing: "reviewing", approved: "approved", rejected: "has notes",
+      thinking: "thinking", ready: "ideas ready", sleeping: "sleeping",
     },
     static: {
       connecting: "connecting…",
       cost_title: "Cost estimated by Claude Code; with a subscription it uses your limits, not money",
-      scene_label: "Pixel office: the developer, the reviewer and the idea maker at their desks. Click an agent to see its skills.",
-      worker_plate: "DEVELOPER",
-      reviewer_plate: "REVIEWER",
-      ideator_plate: "IDEA MAKER",
-      topic_label: "TOPIC FOR IDEAS",
+      scene_label: "Pixel office: coderen, checkren and idearen at their desks. Click an agent to see its skills.",
+      worker_plate: "coderen",
+      reviewer_plate: "checkren",
+      ideator_plate: "idearen",
+      topic_label: "TOPIC FOR IDEAREN",
       topic_placeholder: "For example: tools for students before exams",
       btn_ideas: "Get ideas",
       open_drawer: "Open skills and activity",
-      task_label: "TASK FOR THE DEVELOPER",
+      task_label: "TASK FOR CODEREN",
       task_placeholder: "For example: build a Python CLI that counts words in a file, with tests",
       btn_task: "Give task",
-      btn_review: "Call reviewer",
+      btn_review: "Call checkren",
       btn_rework: "Send back",
       btn_accept: "Accept",
       btn_stop: "Stop",
       autopilot_label: "AUTOPILOT",
       rounds_label: "Max rounds",
       log_title: "LOG",
-      log_empty: "All quiet. Give the developer a task.",
+      log_empty: "All quiet. Give coderen a task.",
       now_title: "NOW",
       skills_title: "SKILLS",
       activity_title: "ACTIVITY",
       close: "Close",
+      time_label: "Time of day in the office",
+      time_auto: "AUTO",
+      time_day: "DAY",
+      time_night: "NIGHT",
+      time_auto_title: "Follow your clock",
     },
     online: "online",
     offline: "offline",
-    hint_working: "The developer is working. You can call the reviewer when they finish.",
-    hint_reviewing: "The reviewer is checking the changes…",
-    hint_sent: "The fixes are ready. Call the reviewer to check them.",
+    hint_working: "coderen is working. You can call checkren when the work is ready.",
+    hint_reviewing: "checkren is checking the changes…",
+    hint_sent: "The fixes are ready. Call checkren to check them.",
     hint_rework: "There are review notes: send the work back or adjust the task.",
     hint_approved_notes: "Approved with minor notes. Accept it or send it back.",
     hint_approved: "Approved. Press “Accept” to commit the work to git.",
-    hint_started: "The work is ready. Call the reviewer, give a new task, or accept it as is.",
+    hint_started: "The work is ready. Call checkren, give a new task, or accept it as is.",
     pilot: {
       off: "Work → review → fixes on its own, until approved or the round limit",
       running: (r, max) => (r ? `Round ${r} of ${max}` : "Running"),
@@ -53,7 +59,7 @@ const STRINGS = {
       error: "Stopped: an error",
       stopped: "Stopped",
     },
-    verdict_sent: "Notes sent to the developer",
+    verdict_sent: "Notes sent to coderen",
     verdict_approved: "Approved",
     verdict_rejected: "Needs work",
     check_failed: (cmd) => `check failed: ${cmd}`,
@@ -71,61 +77,68 @@ const STRINGS = {
     ideas_for: (topic) => `Ideas on “${topic}”`,
     recommended: "recommended",
     scope: { small: "small", medium: "medium", large: "large" },
-    brief: "Brief for the developer",
-    hand_off: "Give to the developer",
-    handed: "With the developer",
+    brief: "Brief for coderen",
+    hand_off: "Give to coderen",
+    handed: "With coderen",
   },
   ru: {
-    names: { worker: "Исполнитель", reviewer: "Ревьюер", ideator: "Генератор идей", user: "Ты", office: "Офис" },
+    names: { worker: "coderen", reviewer: "checkren", ideator: "idearen", user: "Ты", office: "Офис" },
+    roles: { worker: "Исполнитель", reviewer: "Ревьюер", ideator: "Генератор идей" },
+    // Present tense and impersonal forms, so no status guesses anyone's gender.
     status: {
-      idle: "свободен", working: "работает", reviewing: "проверяет", approved: "одобрил", rejected: "вернул на доработку",
-      thinking: "думает", ready: "идеи готовы",
+      idle: "отдыхает", working: "работает", reviewing: "проверяет", approved: "одобрено", rejected: "есть замечания",
+      thinking: "думает", ready: "идеи готовы", sleeping: "спит",
     },
     static: {
       connecting: "подключаюсь…",
       cost_title: "Стоимость по оценке Claude Code; с подпиской списываются лимиты, а не деньги",
-      scene_label: "Пиксельный офис: исполнитель, ревьюер и генератор идей за своими столами. Нажми на агента, чтобы увидеть его навыки.",
-      worker_plate: "ИСПОЛНИТЕЛЬ",
-      reviewer_plate: "РЕВЬЮЕР",
-      ideator_plate: "ГЕНЕРАТОР ИДЕЙ",
-      topic_label: "ТЕМА ДЛЯ ИДЕЙ",
+      scene_label: "Пиксельный офис: coderen, checkren и idearen за своими столами. Нажми на агента, чтобы увидеть его навыки.",
+      worker_plate: "coderen",
+      reviewer_plate: "checkren",
+      ideator_plate: "idearen",
+      topic_label: "ТЕМА ДЛЯ IDEAREN",
       topic_placeholder: "Например: инструменты для студентов перед сессией",
       btn_ideas: "Придумать идеи",
       open_drawer: "Открыть навыки и действия",
-      task_label: "ЗАДАЧА ДЛЯ ИСПОЛНИТЕЛЯ",
+      task_label: "ЗАДАЧА ДЛЯ CODEREN",
       task_placeholder: "Например: сделай CLI на Python, который считает слова в файле, и напиши к нему тесты",
       btn_task: "Дать задачу",
-      btn_review: "Позвать ревьюера",
+      btn_review: "Позвать checkren",
       btn_rework: "На доработку",
       btn_accept: "Принять",
       btn_stop: "Стоп",
       autopilot_label: "АВТОПИЛОТ",
       rounds_label: "Раундов, не больше",
       log_title: "ЖУРНАЛ",
-      log_empty: "Пока тихо. Дай исполнителю задачу.",
+      log_empty: "Пока тихо. Дай coderen задачу.",
       now_title: "СЕЙЧАС",
       skills_title: "НАВЫКИ",
       activity_title: "ДЕЙСТВИЯ",
       close: "Закрыть",
+      time_label: "Время суток в офисе",
+      time_auto: "АВТО",
+      time_day: "ДЕНЬ",
+      time_night: "НОЧЬ",
+      time_auto_title: "По твоим часам",
     },
     online: "на связи",
     offline: "нет связи",
-    hint_working: "Исполнитель работает. Ревьюера можно позвать, когда он закончит.",
-    hint_reviewing: "Ревьюер проверяет изменения…",
-    hint_sent: "Исправления готовы. Позови ревьюера, чтобы проверить их.",
+    hint_working: "coderen работает. checkren можно позвать, когда работа будет готова.",
+    hint_reviewing: "checkren проверяет изменения…",
+    hint_sent: "Исправления готовы. Позови checkren, чтобы проверить их.",
     hint_rework: "Есть замечания: отправь на доработку или поправь задачу.",
-    hint_approved_notes: "Ревьюер одобрил, но оставил мелкие замечания. Можно принять или отправить на доработку.",
-    hint_approved: "Ревьюер одобрил. Нажми «Принять», чтобы зафиксировать работу в git.",
-    hint_started: "Работа готова. Позови ревьюера, дай новую задачу или прими как есть.",
+    hint_approved_notes: "Работа одобрена, но есть мелкие замечания. Можно принять или отправить на доработку.",
+    hint_approved: "Работа одобрена. Нажми «Принять», чтобы зафиксировать её в git.",
+    hint_started: "Работа готова. Позови checkren, дай новую задачу или прими как есть.",
     pilot: {
       off: "Работа → ревью → доработка сами, пока не одобрят или не кончатся раунды",
       running: (r, max) => (r ? `Раунд ${r} из ${max}` : "Работает"),
       approved: "Готово: одобрено",
-      limit: "Остановлен: лимит раундов",
-      error: "Остановлен: ошибка",
-      stopped: "Остановлен",
+      limit: "Стоп: лимит раундов",
+      error: "Стоп: ошибка",
+      stopped: "Остановлено",
     },
-    verdict_sent: "Замечания отправлены исполнителю",
+    verdict_sent: "Замечания отправлены coderen",
     verdict_approved: "Одобрено",
     verdict_rejected: "Нужна доработка",
     check_failed: (cmd) => `упала проверка ${cmd}`,
@@ -143,9 +156,9 @@ const STRINGS = {
     ideas_for: (topic) => `Идеи по теме «${topic}»`,
     recommended: "рекомендую",
     scope: { small: "небольшая", medium: "средняя", large: "большая" },
-    brief: "ТЗ для исполнителя",
-    hand_off: "Передать исполнителю",
-    handed: "У исполнителя",
+    brief: "ТЗ для coderen",
+    hand_off: "Передать coderen",
+    handed: "У coderen",
   },
 };
 
@@ -191,6 +204,21 @@ function applyLanguage(next) {
 
 // ---------- rendering ----------
 
+// An agent with nothing to do is resting, or asleep at night; the scene knows which.
+function statusText(agent, status) {
+  const t = S();
+  if (status === "idle" && window.OfficeScene?.restOf(agent) === "sleep") return t.status.sleeping;
+  return t.status[status] || status;
+}
+
+function renderPlates() {
+  if (!state) return;
+  for (const agent of ["worker", "reviewer", "ideator"]) {
+    if (state.agents[agent]) $(`status-${agent}`).textContent = statusText(agent, state.agents[agent].status);
+  }
+  if (drawerAgent) renderDrawer();
+}
+
 function setText(el, text) {
   if (el.textContent !== text) {
     el.textContent = text;
@@ -213,7 +241,7 @@ function render(s) {
     if (!a) continue;
     $(`desk-${agent}`).dataset.status = a.status;
     setText($(`bubble-${agent}`), a.bubble);
-    $(`status-${agent}`).textContent = t.status[a.status] || a.status;
+    $(`status-${agent}`).textContent = statusText(agent, a.status);
   }
 
   const working = s.agents.worker.status === "working";
@@ -436,7 +464,7 @@ function renderDrawer() {
   const t = S();
   const agent = state.agents[drawerAgent];
   $("drawer-title").textContent = t.names[drawerAgent];
-  $("drawer-status").textContent = t.status[agent.status] || agent.status;
+  $("drawer-status").textContent = `${t.roles[drawerAgent]} · ${statusText(drawerAgent, agent.status)}`;
   $("drawer").dataset.status = agent.status;
   $("drawer-bubble").textContent = agent.bubble;
 
@@ -609,5 +637,32 @@ document.addEventListener("keydown", (e) => {
   trapFocus(e);
 });
 
+// ---------- time of day ----------
+
+const TIME_KEY = "ai-office-time";
+
+function setTimeMode(mode) {
+  document.querySelectorAll(".time-switch button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.time === mode)));
+  window.OfficeScene?.setTimeMode(mode);
+  try {
+    localStorage.setItem(TIME_KEY, mode);
+  } catch {
+    // storage can be unavailable (private mode); the switch still works for this visit
+  }
+}
+
+document.querySelectorAll(".time-switch button").forEach((button) => {
+  button.addEventListener("click", () => setTimeMode(button.dataset.time));
+});
+window.addEventListener("office:rest", renderPlates);
+
+let savedTime = "auto";
+try {
+  savedTime = localStorage.getItem(TIME_KEY) || "auto";
+} catch {
+  // keep "auto"
+}
+
 applyLanguage(lang);
+setTimeMode(savedTime);
 connect();

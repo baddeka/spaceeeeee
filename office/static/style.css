@@ -209,6 +209,8 @@ h2 { font-size: 18px; }
 .agent[data-agent="worker"] .bubble { border-color: var(--worker-dark); }
 .agent[data-agent="reviewer"] .bubble { border-color: var(--reviewer-dark); }
 .agent[data-agent="ideator"] .bubble { border-color: var(--ideator-dark); }
+/* sleeping agents do not talk; the Zs above their heads say enough */
+.agent[data-rest="sleep"] .bubble { display: none; }
 
 .nameplate {
   position: absolute;
@@ -461,8 +463,8 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 
 /* ---------- language switch ---------- */
 
-.lang-switch { display: inline-flex; border: 2px solid var(--ink); }
-.lang-switch button {
+.lang-switch, .time-switch { display: inline-flex; border: 2px solid var(--ink); }
+.lang-switch button, .time-switch button {
   padding: 5px 7px 4px;
   font: 13px/1 var(--pixel-font);
   letter-spacing: 0.05em;
@@ -471,9 +473,11 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
   border: 0;
   cursor: pointer;
 }
-.lang-switch button + button { border-left: 2px solid var(--ink); }
-.lang-switch button[aria-pressed="true"] { color: #fff; background: var(--ink); }
-.lang-switch button:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.lang-switch button + button, .time-switch button + button { border-left: 2px solid var(--ink); }
+.lang-switch button[aria-pressed="true"], .time-switch button[aria-pressed="true"] { color: #fff; background: var(--ink); }
+.lang-switch button:focus-visible, .time-switch button:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.time-switch button[data-time="night"][aria-pressed="true"] { background: #1f3566; }
+.time-switch button[data-time="day"][aria-pressed="true"] { color: #2b2433; background: #ffe066; }
 
 /* ---------- autopilot ---------- */
 
@@ -667,7 +671,10 @@ body.drawer-open { overflow: hidden; }
   /* three bubbles do not fit a phone-sized room: only agents at work speak; the monitors show the rest */
   .agent:not([data-status="working"], [data-status="reviewing"], [data-status="thinking"]) .bubble { display: none; }
   .meta .cost { display: none; }
-  .meta { gap: 8px; }
+  /* the switches get their own row under the logo */
+  .topbar { flex-wrap: wrap; row-gap: 10px; }
+  .brand { flex: 1 1 100%; }
+  .meta { flex: 1 1 100%; gap: 8px; }
   .meta .conn { font-size: 0; }
   .actions .btn { flex: 1 1 auto; }
 

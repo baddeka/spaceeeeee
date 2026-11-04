@@ -19,6 +19,11 @@
       </div>
     </div>
     <div class="meta">
+      <div class="time-switch" role="group" data-i18n-label="time_label">
+        <button type="button" data-time="auto" aria-pressed="true" data-i18n="time_auto" data-i18n-title="time_auto_title">AUTO</button>
+        <button type="button" data-time="day" aria-pressed="false" data-i18n="time_day">DAY</button>
+        <button type="button" data-time="night" aria-pressed="false" data-i18n="time_night">NIGHT</button>
+      </div>
       <div class="lang-switch" role="group" aria-label="Language">
         <button type="button" data-lang="en" aria-pressed="true">EN</button>
         <button type="button" data-lang="ru" aria-pressed="false">RU</button>
@@ -37,7 +42,7 @@
           <div class="agent" id="desk-worker" data-agent="worker" data-status="idle">
             <div class="bubble" id="bubble-worker"></div>
             <button type="button" class="nameplate" id="plate-worker" data-drawer="worker" data-i18n-title="open_drawer">
-              <span class="dot"></span><strong data-i18n="worker_plate">DEVELOPER</strong>
+              <span class="dot"></span><strong data-i18n="worker_plate">coderen</strong>
               <span class="status-text" id="status-worker"></span>
             </button>
           </div>
@@ -45,7 +50,7 @@
           <div class="agent" id="desk-reviewer" data-agent="reviewer" data-status="idle">
             <div class="bubble" id="bubble-reviewer"></div>
             <button type="button" class="nameplate" id="plate-reviewer" data-drawer="reviewer" data-i18n-title="open_drawer">
-              <span class="dot"></span><strong data-i18n="reviewer_plate">REVIEWER</strong>
+              <span class="dot"></span><strong data-i18n="reviewer_plate">checkren</strong>
               <span class="status-text" id="status-reviewer"></span>
             </button>
           </div>
@@ -53,7 +58,7 @@
           <div class="agent" id="desk-ideator" data-agent="ideator" data-status="idle">
             <div class="bubble" id="bubble-ideator"></div>
             <button type="button" class="nameplate" id="plate-ideator" data-drawer="ideator" data-i18n-title="open_drawer">
-              <span class="dot"></span><strong data-i18n="ideator_plate">IDEA MAKER</strong>
+              <span class="dot"></span><strong data-i18n="ideator_plate">idearen</strong>
               <span class="status-text" id="status-ideator"></span>
             </button>
           </div>

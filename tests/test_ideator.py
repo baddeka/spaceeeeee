@@ -146,11 +146,11 @@ def test_handing_off_gives_the_developer_the_brief(fake_claude, tmp_path):
     office.wait_idle()
 
     prompt = worker_calls(fake_claude())[0]["prompt"]
-    assert prompt.startswith("Idea from the idea maker: Focus timer page")
+    assert prompt.startswith("Idea from idearen: Focus timer page")
     assert "Build index.html with a 25/5 timer" in prompt
     assert "not from the user" in prompt  # the brief may carry text from the web
     assert office.ideas[1]["handed"] and not office.ideas[0]["handed"]
-    assert office.agents["ideator"]["bubble"] == "Handed to the developer: Focus timer page"
+    assert office.agents["ideator"]["bubble"] == "Handed to coderen: Focus timer page"
     assert any(e["agent"] == "ideator" and e["kind"] == "handoff" for e in office._log)
 
     office.accept()
@@ -241,3 +241,20 @@ def test_http_ideas_and_handoff(fake_claude, server):  # noqa: F811
     office.wait_idle()
     status, _ = request(base + "/api/handoff", "POST", {"index": 9}, json_header)
     assert status == 400
+
+
+def test_agents_know_their_names(fake_claude, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_REVIEW", CLEAN)
+    office = Office(tmp_path / "ws")
+    office.generate_ideas("x")
+    office.wait_idle()
+    office.hand_off(0)
+    office.wait_idle()
+    office.request_review()
+    office.wait_idle()
+
+    calls = fake_claude()
+    assert "You are idearen" in arg(ideator_calls(calls)[0], "--system-prompt")
+    assert "You are coderen" in arg(worker_calls(calls)[0], "--append-system-prompt")
+    review = next(c for c in calls if schema_of(c) and '"ideas"' not in schema_of(c))
+    assert "you are checkren" in review["prompt"]

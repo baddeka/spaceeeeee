@@ -230,7 +230,7 @@ def test_rework_allowed_for_approved_verdict_with_minor_issues(fake_claude, tmp_
     office.send_rework()
     office.wait_idle()
 
-    assert "одобрил работу, но оставил замечания" in fake_claude()[-1]["prompt"]
+    assert "checkren одобряет работу, но есть замечания" in fake_claude()[-1]["prompt"]
 
 
 def test_rework_prompt_lists_issues():

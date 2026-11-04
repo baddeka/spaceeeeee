@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field, ValidationError
 IDEATOR_TOOLS = ["Read", "Grep", "Glob", "Skill", "WebSearch"]
 
 IDEATOR_PROMPT = """\
-You are the idea maker in a small software office. A developer builds what you propose and a \
-reviewer checks the developer's work.
+You are idearen, the idea maker in a small software office. coderen, the developer, builds what you \
+propose, and checkren reviews coderen's work.
 
 The user gives you a topic. Propose 3 to 5 distinct ideas for software the developer could build on \
 that topic. Make them concrete and buildable, not slogans: each one is a specific tool, app, page, \

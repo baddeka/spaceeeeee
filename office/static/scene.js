@@ -54,23 +54,33 @@
   };
 
   // deskY is the top edge of the desk; everything an agent owns is placed relative to it.
+  // rest: what the agent does when it has nothing to do, in turn; restFrames: how long each lasts.
   const AGENTS = {
     worker: {
       cx: 90, deskY: 96, tower: "right", head: "headWorker", headY: -3,
       shirt: "#3b7bd9", shirtDark: "#2c5fae", hair: "#2d2a26", hairLight: "#4a443d",
-      portrait: "#cfe0fb",
+      portrait: "#cfe0fb", cup: C.blue,
+      rest: ["music", "sip", "stretch", "music", "nap"], restFrames: 72, restOffset: 0,
     },
     reviewer: {
       cx: 228, deskY: 96, tower: "left", head: "headReviewer", headY: -4,
       shirt: "#8b55d6", shirtDark: "#6a3fae", hair: "#8a4a26", hairLight: "#a8633a",
-      portrait: "#e4d6fb",
+      portrait: "#e4d6fb", cup: C.white,
+      rest: ["read", "sip", "stretch", "read", "nap"], restFrames: 88, restOffset: 30,
     },
     ideator: {
       cx: 160, deskY: 134, tower: null, head: "headIdeator", headY: -4,
       shirt: "#2f9e78", shirtDark: "#237a5d", hair: "#d9a441", hairLight: "#efc46a",
-      beanie: "#e8743b", beanieDark: "#c25a26", portrait: "#d3f1e4",
+      beanie: "#e8743b", beanieDark: "#c25a26", portrait: "#d3f1e4", cup: C.red,
+      rest: ["daydream", "juggle", "sip", "daydream", "stretch", "nap"], restFrames: 64, restOffset: 50,
     },
   };
+
+  // Statuses in which an agent has nothing to do and may rest.
+  const RESTFUL = { worker: ["idle"], reviewer: ["idle", "approved", "rejected"], ideator: ["idle", "ready"] };
+  const REST_AFTER = 3 * FPS; // frames of idleness before resting starts
+
+  const WINDOW = { x: 14, y: 7, w: 50, h: 28 };
 
   const SPRITES = {
     headWorker: [
@@ -191,6 +201,30 @@
       "OPPPPPPPPO",
       "OOOOOOOOOO",
     ],
+    z: ["XXX", ".X.", "XXX"],
+    bigZ: ["XXXX", "..X.", ".X..", "XXXX"],
+    note: [".XX", ".X.", ".X.", "XX.", "XX."],
+    book: [
+      "OOOOOOOOOOOOOO",
+      "OPPPPPPOPPPPPO",
+      "OPddPPPOPddPPO",
+      "OPPPPPPOPPPPPO",
+      "OPddPPPOPdPPPO",
+      "OPPPPPPOPPPPPO",
+      "OOOOOOOOOOOOOO",
+    ],
+    cloud: [
+      "...OOOO....",
+      "..OWWWWOOO.",
+      ".OWWWWWWWWO",
+      "OWWWWWWWWWO",
+      "OWWWWWWWWO.",
+      ".OOWWWWOO..",
+      "...OOOO....",
+    ],
+    star: [".X.", "XXX", ".X."],
+    heart: ["X.X", "XXX", ".X."],
+    moon: [".XXX.", "XX...", "XX...", "XX...", ".XXX."],
     plant: [
       ".....G.....g....",
       "....GG....gg..G.",
@@ -241,6 +275,19 @@
     }
   }
 
+  // A two-pixel-thick arm.
+  function limb(c, x0, y0, x1, y1, color) {
+    line(c, x0, y0, x1, y1, color);
+    line(c, x0 + 1, y0, x1 + 1, y1, color);
+  }
+
+  function disc(c, cx, cy, r) {
+    for (let dy = -r; dy <= r; dy++) {
+      const half = Math.floor(Math.sqrt(r * r - dy * dy));
+      c.fillRect(Math.round(cx - half), Math.round(cy + dy), half * 2 + 1, 1);
+    }
+  }
+
   function seeded(seed) {
     let s = seed;
     return () => {
@@ -283,6 +330,14 @@
     }
     // shadow where the floor meets the wall
     shadow(c, 0, 65, W, 3, 0.18);
+  }
+
+  function drawWindowFrame(c) {
+    const { x, y, w, h } = WINDOW;
+    rect(c, x - 2, y - 2, w + 4, h + 4, C.outline);
+    rect(c, x - 1, y - 1, w + 2, h + 2, C.doorDark);
+    rect(c, x - 4, y + h + 1, w + 8, 3, C.outline);
+    rect(c, x - 3, y + h + 1, w + 6, 2, C.wood);
   }
 
   function drawDoor(c, x) {
@@ -475,7 +530,8 @@
   function drawStatic(c) {
     drawWall(c);
     drawFloor(c);
-    drawPicture(c, 30, 12);
+    drawWindowFrame(c);
+    drawPicture(c, 74, 12);
     drawBookshelf(c, 106, 7);
     drawDoor(c, 146);
     drawNote(c, 183, 22);
@@ -501,6 +557,11 @@
   background.width = W;
   background.height = H;
   drawStatic(background.getContext("2d"));
+  // Darkness with holes where lamps and screens shine, laid over the room at night.
+  const shade = document.createElement("canvas");
+  shade.width = W;
+  shade.height = H;
+  const sc = shade.getContext("2d");
   // Flying papers go on their own layer above the speech bubbles, so a bubble never hides one.
   const effects = document.createElement("canvas");
   effects.className = "scene-effects";
@@ -513,16 +574,126 @@
   let frame = 0;
   let flight = null; // a sheet of paper flying between desks
   let celebrateUntil = 0;
+  let timeMode = "auto"; // "auto" follows the clock; "day" and "night" pin it
+  const idleFrames = { worker: 0, reviewer: 0, ideator: 0 };
+  const lastStatus = {};
+  const restShown = {};
 
   const statusOf = (name) => (state && state.agents[name] ? state.agents[name].status : "idle");
+
+  // ---------- time of day ----------
+
+  function phase() {
+    if (timeMode === "day") return "day";
+    if (timeMode === "night") return "night";
+    const hour = new Date().getHours();
+    if (hour >= 22 || hour < 6) return "night";
+    if (hour < 8) return "dawn";
+    if (hour < 18) return "day";
+    return "evening";
+  }
+
+  const SKY = {
+    dawn: ["#f6a6b2", "#f9c3a9", "#fbd8a8", "#cfe3f3"],
+    day: ["#6ec1f2", "#86ccf5", "#a3d9f8", "#c3e6fa"],
+    evening: ["#3e3a78", "#8a4f8c", "#e0737a", "#f6a65f"],
+    night: ["#0b1430", "#122042", "#182a55", "#1f3566"],
+  };
+
+  function drawSky(c, when) {
+    const { x, y, w, h } = WINDOW;
+    c.save();
+    c.beginPath();
+    c.rect(x, y, w, h);
+    c.clip();
+    const bands = SKY[when];
+    const bandH = Math.ceil(h / bands.length);
+    bands.forEach((color, i) => rect(c, x, y + i * bandH, w, Math.min(bandH, h - i * bandH), color));
+    if (when === "day") {
+      disc(fillWith(c, "#ffe066"), x + w - 10, y + 7, 4);
+      const drift = Math.floor(frame / 6) % (w + 20);
+      for (const [ox, oy] of [[0, 12], [26, 5]]) {
+        const cx = x + ((ox + drift) % (w + 20)) - 10;
+        rect(c, cx, y + oy, 10, 3, "#ffffff");
+        rect(c, cx + 2, y + oy - 2, 5, 2, "#ffffff");
+      }
+    } else if (when === "dawn" || when === "evening") {
+      disc(fillWith(c, when === "dawn" ? "#ffd27a" : "#ff8a3d"), x + (when === "dawn" ? 12 : w - 14), y + h - 3, 5);
+    } else {
+      const rnd = seeded(7);
+      for (let i = 0; i < 14; i++) {
+        const sx = x + 1 + Math.floor(rnd() * (w - 2));
+        const sy = y + 1 + Math.floor(rnd() * (h - 4));
+        const twinkle = (i + Math.floor(frame / 4)) % 5 === 0;
+        rect(c, sx, sy, 1, 1, twinkle ? "#ffffff" : "#8fa3d8");
+      }
+      sprite(c, SPRITES.moon, x + w - 12, y + 4, { X: "#f3efd6" });
+    }
+    c.restore();
+    // mullions
+    rect(c, x + w / 2 - 1, y, 2, h, C.doorDark);
+    rect(c, x, y + h / 2 - 1, w, 2, C.doorDark);
+  }
+
+  function fillWith(c, color) {
+    c.fillStyle = color;
+    return c;
+  }
+
+  // ---------- resting ----------
+
+  // What an agent is doing right now: "work" when busy, "celebrate", "sleep" at night, or a rest activity.
+  function activityOf(name) {
+    const status = statusOf(name);
+    if (name !== "ideator" && status === "approved" && performance.now() < celebrateUntil) return "celebrate";
+    if (name === "worker" && performance.now() < celebrateUntil) return "celebrate";
+    if (!RESTFUL[name].includes(status) || idleFrames[name] < REST_AFTER) return "work";
+    if (phase() === "night") return "sleep";
+    const a = AGENTS[name];
+    return a.rest[Math.floor((frame + a.restOffset) / a.restFrames) % a.rest.length];
+  }
+
+  function trackIdleness() {
+    for (const name of Object.keys(AGENTS)) {
+      const status = statusOf(name);
+      if (status !== lastStatus[name]) {
+        idleFrames[name] = 0;
+        lastStatus[name] = status;
+      } else {
+        idleFrames[name] += 1;
+      }
+    }
+  }
+
+  // Tells the page who is resting or asleep, so it can hide speech bubbles and say "sleeping".
+  function publishRest(activities) {
+    let changed = false;
+    for (const [name, activity] of Object.entries(activities)) {
+      const rest = activity === "sleep" ? "sleep" : activity === "work" || activity === "celebrate" ? "" : "rest";
+      if (restShown[name] !== rest) {
+        restShown[name] = rest;
+        changed = true;
+        const desk = document.getElementById(`desk-${name}`);
+        if (desk) desk.dataset.rest = rest;
+      }
+    }
+    if (changed) window.dispatchEvent(new CustomEvent("office:rest", { detail: { ...restShown } }));
+  }
+
+  // ---------- screens ----------
 
   function screenRect(name) {
     const a = AGENTS[name];
     return { x: a.cx - 12, y: a.deskY - 20, w: 24, h: 16 };
   }
 
-  function drawScreen(c, name, status) {
+  function drawScreen(c, name, status, activity) {
     const s = screenRect(name);
+    if (activity === "sleep" && !(name === "ideator" && status === "ready")) {
+      rect(c, s.x, s.y, s.w, s.h, "#0a0d12");
+      rect(c, s.x + s.w - 2, s.y + s.h - 2, 1, 1, frame % 16 < 8 ? "#3fb950" : "#1d4d27"); // standby light
+      return;
+    }
     if (status === "approved") {
       rect(c, s.x, s.y, s.w, s.h, "#1f7a3a");
       sprite(c, SPRITES.check, s.x + 8, s.y + 4, { W: C.white });
@@ -536,10 +707,22 @@
     rect(c, s.x, s.y, s.w, s.h, C.screen);
     if (name === "ideator") {
       drawIdeaScreen(c, s, status);
+    } else if (activity !== "work" && activity !== "celebrate") {
+      drawScreensaver(c, s, AGENTS[name].shirt);
     } else {
       drawCodeScreen(c, s, name, status);
     }
     rect(c, s.x, s.y, s.w, 1, "rgba(255,255,255,0.08)"); // glare
+  }
+
+  // A square that bounces around a resting agent's screen.
+  function drawScreensaver(c, s, color) {
+    const span = { x: s.w - 4, y: s.h - 4 };
+    const bounce = (t, n) => {
+      const p = t % (2 * n);
+      return p < n ? p : 2 * n - p;
+    };
+    rect(c, s.x + 1 + bounce(frame, span.x - 1), s.y + 1 + bounce(Math.floor(frame * 0.7), span.y - 1), 3, 3, color);
   }
 
   function drawCodeScreen(c, s, name, status) {
@@ -573,8 +756,7 @@
   // The idea maker's screen: a mind map that grows while it thinks, idea cards when it is done.
   function drawIdeaScreen(c, s, status) {
     if (status === "ready") {
-      const colors = [C.yellow, C.pink, C.mint];
-      colors.forEach((color, i) => {
+      [C.yellow, C.pink, C.mint].forEach((color, i) => {
         const x = s.x + 2 + i * 7;
         rect(c, x, s.y + 4, 6, 8, color);
         rect(c, x + 1, s.y + 6, 4, 1, "rgba(0,0,0,0.3)");
@@ -585,7 +767,7 @@
     const center = { x: s.x + 12, y: s.y + 8 };
     const nodes = [[-8, -5, C.yellow], [8, -5, C.pink], [-9, 4, C.mint], [9, 4, "#7dcfff"], [0, -6, "#bb9af7"], [0, 6, C.yellow]];
     const thinking = status === "thinking";
-    const shown = thinking ? (Math.floor(frame / 3) % (nodes.length + 2)) : nodes.length;
+    const shown = thinking ? Math.floor(frame / 3) % (nodes.length + 2) : nodes.length;
     c.globalAlpha = thinking ? 1 : 0.35;
     nodes.slice(0, shown).forEach(([dx, dy, color]) => {
       line(c, center.x, center.y, center.x + dx, center.y + dy, "#6e7681");
@@ -595,37 +777,88 @@
     c.globalAlpha = 1;
   }
 
-  function drawPerson(c, name, status) {
+  // ---------- people ----------
+
+  function drawPerson(c, name, status, activity) {
     const a = AGENTS[name];
     const cx = a.cx;
     const y = a.deskY;
-    const bob = (status === "idle" || status === "ready") && frame % 16 < 8 ? 1 : 0;
-    let tilt = 0;
-    if (status === "reviewing") tilt = frame % 12 < 6 ? -1 : 1;
-    if (status === "thinking") tilt = frame % 20 < 10 ? -1 : 0;
-    const celebrating = name === "reviewer" && status === "approved" && performance.now() < celebrateUntil;
-    const shirt = { T: a.shirt, t: a.shirtDark };
+    const T = a.shirt;
+    const slow = Math.floor(frame / 4);
+    let headDx = 0;
+    let headDy = (activity === "work" || activity === "celebrate") && status === "idle" && frame % 16 < 8 ? 1 : 0;
+    if (status === "reviewing") headDx = frame % 12 < 6 ? -1 : 1;
+    if (status === "thinking") headDx = frame % 20 < 10 ? -1 : 0;
+    if (activity === "music") headDx = slow % 2 ? 1 : -1;
+    if (activity === "read" || activity === "daydream") headDy = -1;
+    if (activity === "nap" || activity === "sleep") headDy = 3;
 
-    if (celebrating) {
-      const up = frame % 4 < 2 ? 0 : 1;
-      rect(c, cx - 9, y - 7 + up, 2, 12, a.shirt);
-      rect(c, cx + 7, y - 7 + up, 2, 12, a.shirt);
-      rect(c, cx - 9, y - 9 + up, 2, 2, C.skin);
-      rect(c, cx + 7, y - 9 + up, 2, 2, C.skin);
-    } else {
-      const typing = status === "working";
-      const left = typing && frame % 2 === 0 ? 1 : 0;
-      const right = typing && frame % 2 === 1 ? 1 : 0;
-      rect(c, cx - 8, y + 4 + bob, 3, 4, a.shirt);
-      rect(c, cx + 5, y + 4 + bob, 3, 4, a.shirt);
-      rect(c, cx - 7, y + 3 - left + bob, 2, 2, C.skin);
-      rect(c, cx + 5, y + 3 - right + bob, 2, 2, C.skin);
+    // arms behind the body first
+    const hand = (x, hy) => rect(c, x, hy, 2, 2, C.skin);
+    switch (activity) {
+      case "celebrate":
+      case "stretch": {
+        const up = activity === "celebrate" ? (frame % 4 < 2 ? 0 : 1) : (frame % 24 < 16 ? 0 : 2);
+        rect(c, cx - 9, y - 7 + up, 2, 12, T);
+        rect(c, cx + 7, y - 7 + up, 2, 12, T);
+        hand(cx - 9, y - 9 + up);
+        hand(cx + 7, y - 9 + up);
+        break;
+      }
+      case "sip": {
+        const lift = frame % 24 < 8 ? 2 : 0; // a sip every few seconds
+        rect(c, cx - 8, y + 4, 3, 4, T);
+        hand(cx - 7, y + 3);
+        limb(c, cx + 5, y + 6, cx + 7, y - 2 - lift, T);
+        hand(cx + 7, y - 4 - lift);
+        rect(c, cx + 8, y - 8 - lift, 4, 5, C.outline);
+        rect(c, cx + 9, y - 7 - lift, 2, 3, a.cup);
+        rect(c, cx + 12, y - 6 - lift, 1, 2, C.outline);
+        if (!lift && frame % 8 < 4) rect(c, cx + 10, y - 10, 1, 1, "rgba(255,255,255,0.8)");
+        break;
+      }
+      case "read": {
+        limb(c, cx - 6, y + 6, cx - 6, y - 7, T);
+        limb(c, cx + 5, y + 6, cx + 5, y - 7, T);
+        break;
+      }
+      case "juggle": {
+        const left = frame % 16 < 8;
+        limb(c, cx - 6, y + 6, cx - 8, left ? y - 6 : y + 2, T);
+        limb(c, cx + 5, y + 6, cx + 7, left ? y + 2 : y - 6, T);
+        hand(cx - 8, left ? y - 8 : y + 1);
+        hand(cx + 7, left ? y + 1 : y - 8);
+        break;
+      }
+      case "daydream": {
+        // hands behind the head, elbows out
+        limb(c, cx - 6, y + 6, cx - 9, y, T);
+        limb(c, cx - 9, y, cx - 4, y - 2, T);
+        limb(c, cx + 5, y + 6, cx + 8, y, T);
+        limb(c, cx + 8, y, cx + 3, y - 2, T);
+        break;
+      }
+      case "nap":
+      case "sleep": {
+        // arms folded on the desk under the head
+        rect(c, cx - 9, y + 3, 8, 3, T);
+        rect(c, cx + 1, y + 3, 8, 3, T);
+        break;
+      }
+      default: {
+        const typing = status === "working";
+        const left = typing && frame % 2 === 0 ? 1 : 0;
+        const right = typing && frame % 2 === 1 ? 1 : 0;
+        rect(c, cx - 8, y + 4 + headDy, 3, 4, T);
+        rect(c, cx + 5, y + 4 + headDy, 3, 4, T);
+        hand(cx - 7, y + 3 - left + headDy);
+        hand(cx + 5, y + 3 - right + headDy);
+      }
     }
 
-    sprite(c, SPRITES.body, cx - 7, y + 5 + bob, shirt);
-    sprite(c, SPRITES[a.head], cx - 5 + tilt, y + a.headY + bob, {
-      H: a.hair, h: a.hairLight, K: "#1b1d22", S: C.skin,
-      B: a.beanie, b: a.beanieDark, P: "#fff4e0",
+    sprite(c, SPRITES.body, cx - 7, y + 5 + (headDy > 1 ? 1 : 0), { T, t: a.shirtDark });
+    sprite(c, SPRITES[a.head], cx - 5 + headDx, y + a.headY + headDy, {
+      H: a.hair, h: a.hairLight, K: "#1b1d22", S: C.skin, B: a.beanie, b: a.beanieDark, P: "#fff4e0",
     });
 
     sprite(c, SPRITES.chair, cx - 8, y + 11, { O: C.outline, L: C.chairLight, C: C.chair, D: C.chairDark });
@@ -634,7 +867,40 @@
     rect(c, cx - 6, y + 30, 2, 1, C.outline);
     rect(c, cx + 5, y + 30, 2, 1, C.outline);
 
-    if (celebrating) {
+    // things in front of or above the head
+    if (activity === "read") {
+      const flip = frame % 32;
+      sprite(c, SPRITES.book, cx - 7, y - 14, { O: C.outline, P: C.paper, d: C.plasticDark });
+      if (flip < 4) line(c, cx - 1 + flip, y - 13, cx - 1 + flip, y - 9, "#d8d3c4");
+      hand(cx - 7, y - 9);
+      hand(cx + 5, y - 9);
+    } else if (activity === "juggle") {
+      const t = (frame % 16) / 16;
+      const bx = cx - 7 + 14 * t;
+      const by = y - 10 - Math.round(Math.sin(t * Math.PI) * 9);
+      rect(c, bx, by, 3, 3, C.red);
+      rect(c, bx, by, 1, 1, "#ff9b9b");
+    } else if (activity === "daydream") {
+      rect(c, cx + 5, y - 7, 1, 1, C.white);
+      rect(c, cx + 7, y - 10, 2, 2, C.white);
+      sprite(c, SPRITES.cloud, cx + 6, y - 20, { O: C.outline, W: C.white });
+      const icons = [[SPRITES.star, C.yellow], [SPRITES.heart, C.pink], [SPRITES.note, C.purple], [SPRITES.star, "#7dcfff"]];
+      const [icon, color] = icons[Math.floor(frame / 16) % icons.length];
+      sprite(c, icon, cx + 10, y - 17, { X: color });
+    } else if (activity === "music") {
+      for (let k = 0; k < 2; k++) {
+        const t = (frame + k * 8) % 16;
+        const side = k ? 9 : -12;
+        sprite(c, SPRITES.note, cx + side + (t > 8 ? 1 : 0), y - 6 - t, { X: k ? "#ffe066" : C.white });
+      }
+    } else if (activity === "nap" || activity === "sleep") {
+      const big = activity === "sleep";
+      for (let k = 0; k < (big ? 3 : 2); k++) {
+        const t = (frame + k * 6) % 18;
+        if (t > 15) continue;
+        sprite(c, big && k === 0 ? SPRITES.bigZ : SPRITES.z, cx + 6 + k * 2 + (t > 8 ? 1 : 0), y - 4 - t, { X: C.white });
+      }
+    } else if (activity === "celebrate") {
       const sparkle = frame % 4;
       for (const [dx, dy] of [[-12, -10], [12, -12], [-14, 0], [14, -2]]) {
         rect(c, cx + dx, y + dy, 1, 1, (dx + dy + sparkle) % 3 === 0 ? C.yellow : C.white);
@@ -643,11 +909,15 @@
   }
 
   // A light bulb beside the idea maker's monitor: flickers while it thinks, glows when ideas are ready.
+  function bulbOn(status) {
+    return status === "ready" || (status === "thinking" && frame % 6 < 4);
+  }
+
   function drawBulb(c, status) {
     const a = AGENTS.ideator;
     const x = a.cx + 17;
     const y = a.deskY - 24;
-    const on = status === "ready" || (status === "thinking" && frame % 6 < 4);
+    const on = bulbOn(status);
     sprite(c, SPRITES.bulb, x, y, {
       O: C.outline, Y: on ? "#ffe066" : "#c8c2b0", W: on ? "#fffbe6" : "#e0dccf", G: "#9aa0b0", g: "#6c7284",
     });
@@ -662,14 +932,15 @@
     }
   }
 
-  function drawSteam(c, name, status) {
-    if (status !== "idle" || name === "ideator") return;
+  function drawSteam(c, name, activity) {
+    if (name === "ideator" || activity === "sleep" || activity === "sip") return;
+    if (statusOf(name) !== "idle") return;
     const a = AGENTS[name];
     const x = a.cx - 30 + (name === "worker" ? 49 : 9);
     const y = a.deskY - (name === "worker" ? 8 : 9);
-    const phase = frame % 8;
-    rect(c, x + (phase < 4 ? 0 : 1), y - Math.floor(phase / 2), 1, 1, "rgba(255,255,255,0.7)");
-    rect(c, x + (phase < 4 ? 1 : 0), y - 2 - Math.floor(phase / 3), 1, 1, "rgba(255,255,255,0.5)");
+    const p = frame % 8;
+    rect(c, x + (p < 4 ? 0 : 1), y - Math.floor(p / 2), 1, 1, "rgba(255,255,255,0.7)");
+    rect(c, x + (p < 4 ? 1 : 0), y - 2 - Math.floor(p / 3), 1, 1, "rgba(255,255,255,0.5)");
   }
 
   function drawTowerLight(c, name, status) {
@@ -703,9 +974,14 @@
     O: ["XXX", "X.X", "X.X", "X.X", "XXX"],
   };
 
+  function signRunning() {
+    const pilot = state?.autopilot;
+    return Boolean(pilot?.enabled && !pilot.halted);
+  }
+
   function drawSign(c) {
     const pilot = state?.autopilot;
-    const running = pilot?.enabled && !pilot.halted;
+    const running = signRunning();
     const halted = pilot?.enabled && pilot.halted;
     const x = 148;
     const y = 1;
@@ -737,6 +1013,54 @@
     rect(c, x + 3, y - 1, 2, 1, C.red);
   }
 
+  // ---------- light ----------
+
+  const DARKNESS = { night: "rgba(10, 14, 38, 0.62)", evening: "rgba(40, 20, 60, 0.22)" };
+  const TINT = { dawn: "rgba(255, 170, 150, 0.10)", evening: "rgba(255, 140, 70, 0.14)" };
+
+  function lights(activities) {
+    const list = [];
+    const { x, y, w, h } = WINDOW;
+    list.push([x + w / 2, y + h / 2, 20, 0.35]); // the window lets some sky in
+    for (const [name, a] of Object.entries(AGENTS)) {
+      const activity = activities[name];
+      const status = statusOf(name);
+      const screenOn = activity !== "sleep" || (name === "ideator" && status === "ready");
+      if (screenOn) {
+        const bright = activity === "work" && status !== "idle";
+        list.push([a.cx, a.deskY - 12, bright ? 24 : 15, bright ? 0.9 : 0.55]);
+      }
+    }
+    if (activities.reviewer !== "sleep") list.push([AGENTS.reviewer.cx + 23, AGENTS.reviewer.deskY - 8, 18, 0.8]); // desk lamp
+    if (bulbOn(statusOf("ideator"))) list.push([AGENTS.ideator.cx + 20, AGENTS.ideator.deskY - 20, 16, 0.8]);
+    if (signRunning()) list.push([161, 5, 10, 0.6]);
+    return list;
+  }
+
+  function drawLight(c, when, activities) {
+    if (TINT[when]) {
+      c.fillStyle = TINT[when];
+      c.fillRect(0, 0, W, H);
+    }
+    if (!DARKNESS[when]) return;
+    sc.globalCompositeOperation = "source-over";
+    sc.clearRect(0, 0, W, H);
+    sc.fillStyle = DARKNESS[when];
+    sc.fillRect(0, 0, W, H);
+    // cut light pools out of the darkness in steps, which keeps the falloff pixelated
+    sc.globalCompositeOperation = "destination-out";
+    for (const [lx, ly, r, strength] of lights(activities)) {
+      for (const [scale, alpha] of [[1, 0.35], [0.7, 0.35], [0.45, 0.5]]) {
+        sc.fillStyle = `rgba(0, 0, 0, ${alpha * strength})`;
+        disc(sc, lx, ly, Math.round(r * scale));
+      }
+    }
+    sc.globalCompositeOperation = "source-over";
+    c.drawImage(shade, 0, 0);
+  }
+
+  // ---------- frame ----------
+
   function drawFlight(c) {
     if (!flight) return;
     const t = (performance.now() - flight.start) / flight.duration;
@@ -753,7 +1077,12 @@
   }
 
   function draw() {
+    const when = phase();
+    const activities = {};
+    for (const name of Object.keys(AGENTS)) activities[name] = activityOf(name);
+
     ctx.drawImage(background, 0, 0);
+    drawSky(ctx, when);
     drawClock(ctx);
     drawSign(ctx);
     drawBoardSticky(ctx);
@@ -761,14 +1090,17 @@
     const names = Object.keys(AGENTS).sort((p, q) => AGENTS[p].deskY - AGENTS[q].deskY);
     for (const name of names) {
       const status = statusOf(name);
-      drawScreen(ctx, name, status);
+      drawScreen(ctx, name, status, activities[name]);
       drawTowerLight(ctx, name, status);
-      drawSteam(ctx, name, status);
-      drawPerson(ctx, name, status);
+      drawSteam(ctx, name, activities[name]);
+      drawPerson(ctx, name, status, activities[name]);
       if (name === "ideator") drawBulb(ctx, status);
     }
+    drawLight(ctx, when, activities);
     fx.clearRect(0, 0, W, H);
     drawFlight(fx);
+    publishRest(activities);
+    canvas.dataset.phase = when;
   }
 
   const FLIGHT_PALETTES = {
@@ -850,11 +1182,19 @@
   }
 
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (!reducedMotion) {
+  const tick = () => {
+    frame++;
+    trackIdleness();
+    draw();
+  };
+  if (reducedMotion) {
+    // Still move on, slowly, so resting and night take effect; just without animation.
     setInterval(() => {
-      frame++;
+      for (let i = 0; i < FPS * 5; i++) trackIdleness();
       draw();
-    }, 1000 / FPS);
+    }, 5000);
+  } else {
+    setInterval(tick, 1000 / FPS);
   }
 
   function handedTitles(s) {
@@ -863,6 +1203,11 @@
 
   window.OfficeScene = {
     drawPortrait,
+    restOf: (name) => restShown[name] || "",
+    setTimeMode(mode) {
+      timeMode = ["day", "night"].includes(mode) ? mode : "auto";
+      draw();
+    },
     setState(next) {
       const prev = state;
       state = next;

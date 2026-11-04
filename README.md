@@ -4,10 +4,10 @@
 
 Two tools built on Claude that run on a **Claude subscription (Pro or Max), with no API key**:
 
-- **AI Office** is a pixel-art web office with three agents. The idea maker proposes what to build on a topic you give; the developer writes the code; the reviewer checks it when you ask, or on its own with the autopilot, and sends it back for fixes.
+- **AI Office** is a pixel-art web office with three agents: **idearen** proposes what to build on a topic you give, **coderen** writes the code, and **checkren** reviews it when you ask, or on its own with the autopilot, and sends it back for fixes.
 - **ai-review** is a command-line reviewer: it checks a diff, gives a verdict of APPROVED or CHANGES REQUESTED, and sets the exit code for CI.
 
-![AI Office: the idea maker, the developer and the reviewer at their desks, ideas on a topic, and the log](docs/office.png)
+![AI Office by day: idearen, coderen and checkren at their desks, ideas on a topic, and the log](docs/office.png)
 
 ## Install
 
@@ -29,22 +29,38 @@ ai-office --workspace ./my-project
 
 Then open http://127.0.0.1:8000.
 
-1. **Give task.** The developer works in the `--workspace` folder: it creates and edits files and runs commands. Its speech bubble and the log show what it is doing right now.
-2. **Call reviewer.** The reviewer looks at everything the developer changed since the task started, runs the checks from `.ai-review.toml`, and gives a verdict. It can read files but never change them.
-3. **Send back.** The notes go to the developer, who continues the same conversation (`claude --resume`), so it remembers the task and its code.
+1. **Give task.** coderen, the developer, works in the `--workspace` folder: it creates and edits files and runs commands. Its speech bubble and the log show what it is doing right now.
+2. **Call checkren.** checkren, the reviewer, looks at everything coderen changed since the task started, runs the checks from `.ai-review.toml`, and gives a verdict. It can read files but never change them.
+3. **Send back.** The notes go to coderen, who continues the same conversation (`claude --resume`), so it remembers the task and its code.
 4. **Accept.** The current state is committed to git, and the next task starts from it.
 
 If the folder does not exist, it is created with a git repository. The office makes its own commits: `office: before task` before the first task and `office: accepted: …` when you accept.
 
-### Idea maker
+### idearen, the idea maker
 
-Write a topic under **Topic for ideas** and press **Get ideas**. The idea maker looks at the workspace, loads its skills and proposes 3 to 5 ideas, each with a pitch, why it is worth building, its scope (small, medium or large) and a complete brief for the developer. One is marked recommended.
+Write a topic under **Topic for idearen** and press **Get ideas**. idearen looks at the workspace, loads its skills and proposes 3 to 5 ideas, each with a pitch, why it is worth building, its scope (small, medium or large) and a complete brief for coderen. One is marked recommended.
 
-**Give to the developer** hands an idea over as the next task, and a sticky note flies across the room. The idea maker only reads files and may use web search, so it can think while the others work. Asking again continues its conversation, so you get new ideas instead of the same ones.
+**Give to coderen** hands an idea over as the next task, and a sticky note flies across the room. idearen only reads files and may use web search, so it can think while the others work. Asking again continues its conversation, so you get new ideas instead of the same ones.
 
 ### Autopilot
 
-Turn on **Autopilot** and the loop runs by itself: new ideas send the recommended one to the developer when the office is free, the developer finishes, the reviewer is called, and rejected work goes back for fixes, up to the round limit you set. It stops when the reviewer approves, when the limit is reached, on an error, or when you press Stop. Accepting the work always stays with you. The **AUTO** sign above the door lights up while it runs.
+Turn on **Autopilot** and the loop runs by itself: new ideas send the recommended one to the developer when the office is free, the developer finishes, the reviewer is called, and rejected work goes back for fixes, up to the round limit you set. It stops when checkren approves, when the limit is reached, on an error, or when you press Stop. Accepting the work always stays with you. The **AUTO** sign above the door lights up while it runs.
+
+### Day and night
+
+The office follows your clock: dawn, day, evening and night, with the sky in the window and the light in the room. The **AUTO / DAY / NIGHT** switch in the header pins one of them.
+
+An agent with nothing to do starts resting after a few seconds, each in its own way:
+
+| Agent | When it rests |
+|---|---|
+| coderen | listens to music in its headphones, sips coffee, stretches, naps |
+| checkren | reads a book, sips tea, stretches, naps |
+| idearen | daydreams, juggles a ball, sips soda, stretches, naps |
+
+At night the agents with nothing to do fall asleep: their screens go dark and Zs float up. Whoever has work keeps going by the light of the monitor and the desk lamp.
+
+![AI Office at night: checkren reviews under the desk lamp while coderen sleeps](docs/night.png)
 
 ### Skills
 
@@ -52,7 +68,7 @@ Each agent has its own skills: Claude Code skills, loaded only into that agent's
 
 ![The developer's drawer: its skills and recent activity](docs/drawer.png)
 
-| Developer | What it does |
+| coderen (developer) | What it does |
 |---|---|
 | `test-first` | Writes tests for the behavior first, then code until they pass |
 | `project-setup` | Sets up a new project: layout, dependencies, README, checks |
@@ -61,7 +77,7 @@ Each agent has its own skills: Claude Code skills, loaded only into that agent's
 | `address-review` | Works through review notes one by one, with regression tests |
 | `self-check` | Runs the checks and rereads its own diff before handing off |
 
-| Reviewer | What it does |
+| checkren (reviewer) | What it does |
 |---|---|
 | `edge-cases` | Hunts for inputs that break the code |
 | `test-review` | Checks whether the tests would catch a broken implementation |
@@ -69,7 +85,7 @@ Each agent has its own skills: Claude Code skills, loaded only into that agent's
 | `frontend-review` | Checks UI code: unsafe rendering, accessibility, layout, states |
 | `verify-fixes` | On a re-review, checks that each earlier note is really fixed |
 
-| Idea maker | What it does |
+| idearen (idea maker) | What it does |
 |---|---|
 | `brainstorm` | Generates many raw ideas, then keeps a few distinct, buildable ones |
 | `market-check` | Checks what already exists and finds what is missing |
