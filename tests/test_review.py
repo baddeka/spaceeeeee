@@ -148,3 +148,12 @@ def test_cli_reports_errors_with_exit_code_2(repo, capsys):
 
     assert code == cli.EXIT_ERROR
     assert "not a file" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("config", ['checks = "pytest -q"\n', "checks = [1]\n", "checks = [unclosed\n"])
+def test_cli_rejects_a_bad_config(repo, capsys, config):
+    (repo / "a.py").write_text("x = 1\n")
+    (repo / cli.CONFIG_FILE).write_text(config)
+
+    assert cli.main(["--repo", str(repo)], client=FakeClient()) == cli.EXIT_ERROR
+    assert ".ai-review.toml" in capsys.readouterr().err

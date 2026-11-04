@@ -12,7 +12,7 @@ from pathlib import Path
 
 from reviewer import context
 from reviewer.claude_code import ClaudeCodeError, ClaudeCodeRun
-from reviewer.cli import load_config
+from reviewer.cli import ConfigError, load_config
 from reviewer.llm import BLOCKING, Issue, ReviewError, Verdict, review
 
 from .i18n import LANGUAGES, has, t
@@ -229,7 +229,6 @@ class Office:
                 "verdict": self.verdict,
                 "workspace": str(self.workspace),
                 "cost_usd": round(self.cost_usd, 4),
-                "has_session": self.session_id is not None,
                 "topic": self.topic,
                 "ideas": [dict(idea) for idea in self.ideas] if self.ideas else None,
                 "lang": self.lang,
@@ -347,7 +346,9 @@ class Office:
 
     def _start(self, target, *args) -> None:
         thread = threading.Thread(target=target, args=args, daemon=True)
-        self._threads.append(thread)
+        with self._lock:
+            # Finished threads are dropped, so the list stays as short as the work in progress.
+            self._threads = [t for t in self._threads if t.is_alive()] + [thread]
         thread.start()
 
     def start_task(self, text: str, title: str | None = None, from_idea: bool = False) -> None:
@@ -637,7 +638,12 @@ class Office:
         try:
             ctx = context.collect_diff(self.workspace, base=self.baseline)
             config = load_config(self.workspace)
-            for command in config.get("checks", []):
+            checks = config.get("checks", [])
+            if checks and "Bash" not in self.worker_tools:
+                # The developer can still edit .ai-review.toml, so without Bash its commands must not run either.
+                self._log_entry("reviewer", "check", self._t("checks_skipped"))
+                checks = []
+            for command in checks:
                 self._announce("reviewer", "running", command=command[:60])
                 check = context.run_check(command, self.workspace)
                 ctx.checks.append(check)
@@ -671,8 +677,8 @@ class Office:
                     phrase = ("approved", {})
                 else:
                     phrase = ("needs_fixes", {"count": blocking}) if blocking else ("checks_failed", {})
-        except (context.ContextError, ReviewError, ValueError, OSError) as e:
-            # ValueError covers a malformed .ai-review.toml; a stuck "reviewing" would block the office.
+        except (context.ContextError, ConfigError, ReviewError, OSError) as e:
+            # A stuck "reviewing" would block the office, so every expected failure ends the review.
             self._log_entry("reviewer", "error", str(e))
             with self._lock:
                 self.agents["reviewer"]["skill"] = None
@@ -714,7 +720,8 @@ class Office:
         """Waits until no agent thread is running, including ones the autopilot starts; for tests."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            alive = [thread for thread in self._threads if thread.is_alive()]
+            with self._lock:
+                alive = [thread for thread in self._threads if thread.is_alive()]
             if not alive:
                 return
             alive[0].join(max(0.0, deadline - time.monotonic()))
@@ -728,5 +735,5 @@ def verdict_to_dict(verdict: Verdict, ctx: context.ReviewContext) -> dict:
 
 
 def _shorten(text: str, limit: int = 90) -> str:
-    first = text.splitlines()[0]
+    first = next(iter(text.strip().splitlines()), "")
     return first if len(first) <= limit else first[: limit - 1] + "…"

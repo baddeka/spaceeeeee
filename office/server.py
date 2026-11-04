@@ -18,23 +18,36 @@ from .i18n import LANGUAGES
 
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".woff2": "font/woff2"}
-LOOPBACK_NAMES = {"localhost", "127.0.0.1", "[::1]", "::1"}
+LOOPBACK_NAMES = {"localhost", "127.0.0.1", "::1"}
+WILDCARD_HOSTS = {"", "0.0.0.0", "::"}
 HEARTBEAT_SECONDS = 15
+FORBIDDEN_HOST = "forbidden host: open the page by an allowed name, or start ai-office with --allow-host NAME"
 
 
-def make_handler(office: Office, allow_remote: bool = False):
+def allowed_hosts(bind_host: str, extra: list[str] | None = None) -> set[str]:
+    """Names the page may be opened by. Any other Host header is refused, which stops DNS rebinding."""
+    hosts = set(LOOPBACK_NAMES)
+    if bind_host not in WILDCARD_HOSTS:
+        hosts.add(bind_host.strip("[]").lower())
+    hosts.update(name.strip("[]").lower() for name in extra or [])
+    return hosts
+
+
+def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def log_message(self, format, *args):  # keep the terminal quiet
             pass
 
-        # The worker can run commands on this machine, so only this machine's pages may drive it.
+        # The worker can run commands on this machine, so only pages opened by a known name may
+        # drive it: a site that points its own domain at this address still sends its own name.
         def _host_allowed(self) -> bool:
-            if allow_remote:
-                return True
-            host = urlsplit(f"//{self.headers.get('Host', '')}").hostname or ""
-            return host in LOOPBACK_NAMES
+            try:
+                host = urlsplit(f"//{self.headers.get('Host', '')}").hostname or ""
+            except ValueError:
+                return False
+            return host in hosts
 
         def _origin_allowed(self) -> bool:
             origin = self.headers.get("Origin")
@@ -54,7 +67,7 @@ def make_handler(office: Office, allow_remote: bool = False):
 
         def do_GET(self):
             if not self._host_allowed():
-                return self._json(HTTPStatus.FORBIDDEN, {"error": "forbidden host"})
+                return self._json(HTTPStatus.FORBIDDEN, {"error": FORBIDDEN_HOST})
             path = urlsplit(self.path).path
             if path == "/api/state":
                 return self._json(HTTPStatus.OK, office.snapshot())
@@ -67,16 +80,21 @@ def make_handler(office: Office, allow_remote: bool = False):
             self._send(HTTPStatus.OK, file.read_bytes(), STATIC_TYPES[file.suffix])
 
         def do_POST(self):
-            if not self._host_allowed() or not self._origin_allowed():
+            if not self._host_allowed():
+                return self._json(HTTPStatus.FORBIDDEN, {"error": FORBIDDEN_HOST})
+            if not self._origin_allowed():
                 return self._json(HTTPStatus.FORBIDDEN, {"error": "forbidden origin"})
             # Requiring JSON forces a CORS preflight on cross-site requests, which this server never approves.
             if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
                 return self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "expected JSON"})
-            length = int(self.headers.get("Content-Length") or 0)
             try:
-                body = json.loads(self.rfile.read(length) or b"{}")
-            except json.JSONDecodeError:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}") if length > 0 else {}
+            except ValueError:  # a bad length or bad JSON
+                self.close_connection = True
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid JSON"})
+            if not isinstance(body, dict):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error": "expected a JSON object"})
 
             actions = {
                 "/api/task": lambda: office.start_task(str(body.get("text", ""))),
@@ -100,6 +118,9 @@ def make_handler(office: Office, allow_remote: bool = False):
                 return self._json(HTTPStatus.CONFLICT, {"error": str(e)})
             except (ValueError, ContextError) as e:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+            except Exception as e:  # the page should hear about it instead of losing the connection
+                print(f"ai-office: {self.path}: {e!r}", file=sys.stderr)
+                return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"server error: {e}"})
             self._json(HTTPStatus.OK, office.snapshot())
 
         def _events(self):
@@ -139,6 +160,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--workspace", default="workspace", help="project folder the worker edits (default: ./workspace)")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--host", default="127.0.0.1", help="address to listen on (default: 127.0.0.1)")
+    p.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="another name the page may be opened by, e.g. a Tailscale name (repeatable)",
+    )
     p.add_argument("--model", help="Claude model for both agents (default: Claude Code's default)")
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--no-bash", action="store_true", help="do not let the worker run shell commands")
@@ -157,11 +185,11 @@ def main(argv: list[str] | None = None) -> int:
         skills=not args.no_skills,
     )
 
-    allow_remote = args.host not in LOOPBACK_NAMES
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(office, allow_remote))
+    hosts = allowed_hosts(args.host, args.allow_host)
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(office, hosts))
     server.daemon_threads = True
     print(f"AI office: http://{args.host}:{server.server_port}  (workspace: {workspace})")
-    if allow_remote:
+    if args.host.strip("[]") not in LOOPBACK_NAMES:
         print("warning: listening beyond this machine; anyone who can reach it can run the worker", file=sys.stderr)
     try:
         server.serve_forever()

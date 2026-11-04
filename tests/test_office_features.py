@@ -295,3 +295,28 @@ def test_broken_project_config_does_not_leave_the_reviewer_stuck(fake_claude, tm
     assert office.autopilot["halted"] == "error"
     office.request_review()  # the office still accepts new actions
     office.wait_idle()
+
+
+def test_without_bash_project_checks_do_not_run(fake_claude, tmp_path):
+    # The developer can still write .ai-review.toml, so its commands would be Bash by another name.
+    office = Office(tmp_path / "ws", worker_tools=["Read", "Write"])
+    marker = tmp_path / "ran"
+    (tmp_path / "ws" / ".ai-review.toml").write_text(f'checks = ["touch {marker}"]\n')
+    office.start_task("x")
+    office.wait_idle()
+
+    office.request_review()
+    office.wait_idle()
+
+    assert not marker.exists()
+    assert office.verdict["checks"] == []
+    assert len(reviews(fake_claude())) == 1
+
+
+def test_finished_agent_threads_are_not_kept(fake_claude, tmp_path):
+    office = Office(tmp_path / "ws")
+    for _ in range(3):
+        office.start_task("x")
+        office.wait_idle()
+
+    assert len(office._threads) <= 1

@@ -1,6 +1,8 @@
 import json
+import os
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -8,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from office.agents import Busy, Office, describe_tool, rework_prompt
-from office.server import make_handler
+from office.agents import Busy, Office, _shorten, describe_tool, rework_prompt
+from office.server import allowed_hosts, make_handler
 from reviewer import claude_code, llm
 from reviewer.claude_code import ClaudeCodeRun
 
@@ -56,6 +58,65 @@ def test_claude_code_run_reports_crash(fake_claude, tmp_path, monkeypatch):
 
     with pytest.raises(claude_code.ClaudeCodeError, match="boom"):
         ClaudeCodeRun("x", cwd=tmp_path, tools=[]).run()
+
+
+def test_claude_code_run_survives_large_stderr_and_prompt(fake_claude, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_NOISE", str(1 << 20))
+    prompt = "x" * (1 << 20)
+
+    result = ClaudeCodeRun(prompt, cwd=tmp_path, tools=[]).run()
+
+    assert result.session_id == "sess-1"
+    assert fake_claude()[0]["prompt"] == prompt
+
+
+def test_stop_ends_the_commands_claude_code_started(fake_claude, tmp_path, monkeypatch):
+    pid_file = tmp_path / "child.pid"
+    monkeypatch.setenv("FAKE_CLAUDE_HANG", str(pid_file))
+    run = ClaudeCodeRun("x", cwd=tmp_path, tools=[])
+    errors = []
+    thread = threading.Thread(target=lambda: _capture(errors, run.run))
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not pid_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    child = int(pid_file.read_text())
+
+    run.stop()
+    thread.join(10)
+
+    assert not thread.is_alive()
+    assert str(errors[0]) == "stopped"
+    deadline = time.monotonic() + 5
+    while _alive(child) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not _alive(child)
+
+
+def test_stop_before_start_prevents_the_run(fake_claude, tmp_path):
+    run = ClaudeCodeRun("x", cwd=tmp_path, tools=[])
+    run.stop()
+
+    with pytest.raises(claude_code.ClaudeCodeError, match="stopped"):
+        run.run()
+    assert fake_claude() == []
+
+
+def _capture(errors, fn):
+    try:
+        fn()
+    except claude_code.ClaudeCodeError as e:
+        errors.append(e)
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    # A killed child stays as a zombie until its parent, already gone, would reap it.
+    status = Path(f"/proc/{pid}/stat")
+    return not (status.exists() and status.read_text().split(")")[-1].split()[0] == "Z")
 
 
 def test_claude_code_missing_binary(tmp_path, monkeypatch):
@@ -293,8 +354,51 @@ def test_http_blocks_cross_site_posts(server):
     assert status == 403
 
 
-def test_http_switches_language(server):
+def test_http_refuses_other_names_for_this_address(tmp_path):
+    """DNS rebinding: a site points its own name at this address; the Host header gives it away."""
+    office = make_office(tmp_path)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(office, allowed_hosts("100.64.0.7", ["box.ts.net"])))
+    httpd.daemon_threads = True
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_port}"
+    try:
+        for host, expected in [("evil.example", 403), ("100.64.0.7", 200), ("box.ts.net", 200),
+                               ("localhost", 200), ("[::1]", 200), ("[bad", 403)]:
+            assert request(base + "/api/state", headers={"Host": f"{host}:8000"})[0] == expected, host
+    finally:
+        httpd.shutdown()
+
+
+def test_allowed_hosts_skip_wildcard_addresses():
+    assert allowed_hosts("0.0.0.0") == allowed_hosts("::") == {"localhost", "127.0.0.1", "::1"}
+    assert "fe80::1" in allowed_hosts("[FE80::1]")
+
+
+def test_http_rejects_bad_bodies(server):
+    base, _ = server
+    json_header = {"Content-Type": "application/json"}
+
+    assert request(base + "/api/lang", "POST", ["en"], json_header)[0] == 400
+    req = urllib.request.Request(base + "/api/lang", data=b"{}", method="POST",
+                                 headers=json_header | {"Content-Length": "abc"})
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req, timeout=5)
+    assert e.value.code == 400
+
+
+def test_http_reports_unexpected_errors(server, monkeypatch):
     base, office = server
+
+    def broken():
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(office, "accept", broken)
+    status, body = request(base + "/api/accept", "POST", {}, {"Content-Type": "application/json"})
+    assert status == 500 and "disk on fire" in json.loads(body)["error"]
+
+
+def test_http_switches_language(server):
+    base, _ = server
     status, body = request(base + "/api/lang", "POST", {"lang": "en"}, {"Content-Type": "application/json"})
     assert status == 200 and json.loads(body)["lang"] == "en"
     status, _ = request(base + "/api/lang", "POST", {"lang": "xx"}, {"Content-Type": "application/json"})
@@ -306,3 +410,9 @@ def test_http_reports_action_errors(server):
     status, body = request(base + "/api/review", "POST", {}, {"Content-Type": "application/json"})
     assert status == 400
     assert "задачу" in json.loads(body)["error"]
+
+
+def test_shorten_handles_blank_and_long_text():
+    assert _shorten("") == _shorten("  \n") == ""
+    assert _shorten("first\nsecond") == "first"
+    assert _shorten("x" * 100, 10) == "x" * 9 + "…"

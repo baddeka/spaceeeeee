@@ -57,12 +57,23 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+class ConfigError(Exception):
+    pass
+
+
 def load_config(repo: Path) -> dict:
     path = repo / CONFIG_FILE
     if not path.is_file():
         return {}
-    with path.open("rb") as f:
-        return tomllib.load(f)
+    try:
+        with path.open("rb") as f:
+            config = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"{CONFIG_FILE}: {e}") from e
+    checks = config.get("checks", [])
+    if not isinstance(checks, list) or not all(isinstance(c, str) for c in checks):
+        raise ConfigError(f'{CONFIG_FILE}: `checks` must be a list of commands, e.g. ["pytest -q"]')
+    return config
 
 
 def format_verdict(verdict: Verdict, ctx: context.ReviewContext, color: bool) -> str:
@@ -118,7 +129,7 @@ def main(argv: list[str] | None = None, client=None) -> int:
             instructions=config.get("instructions"),
             cwd=repo,
         )
-    except (context.ContextError, ReviewError, tomllib.TOMLDecodeError) as e:
+    except (context.ContextError, ReviewError, ConfigError) as e:
         print(f"ai-review: error: {e}", file=sys.stderr)
         return EXIT_ERROR
 

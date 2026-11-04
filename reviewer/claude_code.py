@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
+import threading
+from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
@@ -24,7 +27,6 @@ class RunResult:
     structured_output: dict | None
     cost_usd: float | None
     model: str | None
-    raw: dict = field(default_factory=dict)
 
 
 class ClaudeCodeRun:
@@ -51,6 +53,7 @@ class ClaudeCodeRun:
         self.cwd = cwd
         self.claude_bin = claude_bin or CLAUDE_BIN
         self._proc: subprocess.Popen | None = None
+        self._lock = threading.Lock()
         self._stopped = False
 
         args = ["-p", "--output-format", "stream-json", "--verbose"]
@@ -80,47 +83,57 @@ class ClaudeCodeRun:
         self.args = args
 
     def run(self, on_event: Callable[[dict], None] | None = None) -> RunResult:
-        if shutil.which(self.claude_bin) is None:
+        binary = shutil.which(self.claude_bin)
+        if binary is None:
             raise ClaudeCodeError(
                 f"`{self.claude_bin}` not found: install Claude Code and sign in with `claude`"
             )
-        self._proc = subprocess.Popen(
-            [self.claude_bin, *self.args],
-            cwd=self.cwd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        # The prompt goes through stdin so large diffs never hit argv limits.
-        assert self._proc.stdin and self._proc.stdout and self._proc.stderr
-        try:
-            self._proc.stdin.write(self.prompt)
-            self._proc.stdin.close()
-        except BrokenPipeError:
-            pass
+        with self._lock:
+            if self._stopped:
+                raise ClaudeCodeError("stopped")
+            # stderr joins stdout so neither pipe can fill up while the other is read; its own
+            # session lets stop() end the commands Claude Code started, not just Claude Code.
+            self._proc = subprocess.Popen(
+                [binary, *self.args],
+                cwd=self.cwd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            )
+        proc = self._proc
+        assert proc.stdin and proc.stdout
+        # The prompt goes through stdin so large diffs never hit argv limits. A thread writes it,
+        # so a prompt bigger than the pipe buffer can't block while output waits to be read.
+        writer = threading.Thread(target=_write_and_close, args=(proc.stdin, self.prompt), daemon=True)
+        writer.start()
 
         result: dict | None = None
-        for line in self._proc.stdout:
+        other = deque(maxlen=5)  # the last lines that are not events, usually an error message
+        for line in proc.stdout:
             line = line.strip()
             if not line:
                 continue
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                other.append(line)
+                continue
+            if not isinstance(event, dict):
                 continue
             if event.get("type") == "result":
                 result = event
             if on_event:
                 on_event(event)
 
-        stderr = self._proc.stderr.read()
-        returncode = self._proc.wait()
+        returncode = proc.wait()
+        writer.join()
 
         if self._stopped:
             raise ClaudeCodeError("stopped")
         if result is None:
-            detail = stderr.strip().splitlines()[-1] if stderr.strip() else f"exit code {returncode}"
+            detail = other[-1] if other else f"exit code {returncode}"
             raise ClaudeCodeError(f"Claude Code exited without a result: {detail}")
         if result.get("is_error"):
             raise ClaudeCodeError(f"Claude Code error: {result.get('result') or result.get('subtype')}")
@@ -132,10 +145,25 @@ class ClaudeCodeRun:
             structured_output=result.get("structured_output"),
             cost_usd=result.get("total_cost_usd"),
             model=models[0] if models else None,
-            raw=result,
         )
 
     def stop(self) -> None:
-        self._stopped = True
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
+        with self._lock:
+            self._stopped = True
+            if self._proc is None or self._proc.poll() is not None:
+                return
+            if not hasattr(os, "killpg"):  # Windows has no process groups
+                self._proc.terminate()
+                return
+            try:
+                os.killpg(self._proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+
+def _write_and_close(stream, text: str) -> None:
+    try:
+        stream.write(text)
+        stream.close()
+    except (BrokenPipeError, OSError):
+        pass  # the process exited early; its output says why

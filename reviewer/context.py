@@ -59,14 +59,17 @@ def _git(repo: Path, *args: str) -> str:
     return proc.stdout
 
 
+def _paths(repo: Path, *args: str) -> list[str]:
+    """Paths printed by git with -z, which keeps non-ASCII names as they are instead of quoting them."""
+    return [p for p in _git(repo, *args, "-z").split("\0") if p]
+
+
 def _has_head(repo: Path) -> bool:
-    proc = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", "HEAD"],
-        cwd=repo,
-        capture_output=True,
-        check=False,
-    )
-    return proc.returncode == 0
+    try:
+        _git(repo, "rev-parse", "--verify", "--quiet", "HEAD")
+    except ContextError:
+        return False
+    return True
 
 
 def _resolve_target(repo: Path, base: str | None) -> tuple[str, str]:
@@ -97,14 +100,14 @@ def read_snapshot(repo: Path, rel_path: str) -> FileSnapshot:
 def collect_diff(repo: Path, base: str | None = None) -> ReviewContext:
     target, description = _resolve_target(repo, base)
     diff = _git(repo, "diff", target)
-    changed = _git(repo, "diff", "--name-only", target).splitlines()
-    added = set(_git(repo, "diff", "--name-only", "--diff-filter=A", target).splitlines())
-    untracked = _git(repo, "ls-files", "--others", "--exclude-standard").splitlines()
+    changed = set(_paths(repo, "diff", "--name-only", target))
+    added = set(_paths(repo, "diff", "--name-only", "--diff-filter=A", target))
+    untracked = _paths(repo, "ls-files", "--others", "--exclude-standard")
 
     # Untracked files never show up in `git diff`, but they are part of the change.
     for rel_path in untracked:
         if rel_path not in changed:
-            changed.append(rel_path)
+            changed.add(rel_path)
             added.add(rel_path)
             diff += _untracked_as_diff(repo, rel_path)
 

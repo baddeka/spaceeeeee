@@ -281,7 +281,8 @@
     line(c, x0 + 1, y0, x1 + 1, y1, color);
   }
 
-  function disc(c, cx, cy, r) {
+  function disc(c, cx, cy, r, color) {
+    if (color) c.fillStyle = color;
     for (let dy = -r; dy <= r; dy++) {
       const half = Math.floor(Math.sqrt(r * r - dy * dy));
       c.fillRect(Math.round(cx - half), Math.round(cy + dy), half * 2 + 1, 1);
@@ -610,7 +611,7 @@
     const bandH = Math.ceil(h / bands.length);
     bands.forEach((color, i) => rect(c, x, y + i * bandH, w, Math.min(bandH, h - i * bandH), color));
     if (when === "day") {
-      disc(fillWith(c, "#ffe066"), x + w - 10, y + 7, 4);
+      disc(c, x + w - 10, y + 7, 4, "#ffe066");
       const drift = Math.floor(frame / 6) % (w + 20);
       for (const [ox, oy] of [[0, 12], [26, 5]]) {
         const cx = x + ((ox + drift) % (w + 20)) - 10;
@@ -618,7 +619,7 @@
         rect(c, cx + 2, y + oy - 2, 5, 2, "#ffffff");
       }
     } else if (when === "dawn" || when === "evening") {
-      disc(fillWith(c, when === "dawn" ? "#ffd27a" : "#ff8a3d"), x + (when === "dawn" ? 12 : w - 14), y + h - 3, 5);
+      disc(c, x + (when === "dawn" ? 12 : w - 14), y + h - 3, 5, when === "dawn" ? "#ffd27a" : "#ff8a3d");
     } else {
       const rnd = seeded(7);
       for (let i = 0; i < 14; i++) {
@@ -633,11 +634,6 @@
     // mullions
     rect(c, x + w / 2 - 1, y, 2, h, C.doorDark);
     rect(c, x, y + h / 2 - 1, w, 2, C.doorDark);
-  }
-
-  function fillWith(c, color) {
-    c.fillStyle = color;
-    return c;
   }
 
   // ---------- resting ----------
@@ -1134,7 +1130,6 @@
     if (whole >= 2 && (scale - whole) / scale < 0.12) scale = whole;
     stage.style.width = `${W * scale}px`;
     stage.style.height = `${H * scale}px`;
-    stage.style.setProperty("--px", `${scale}px`);
   }
   new ResizeObserver(resize).observe(stage.parentElement);
   resize();

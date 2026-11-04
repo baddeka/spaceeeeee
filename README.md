@@ -99,13 +99,15 @@ The skills live in `office/skills/<role>/skills/<name>/SKILL.md`. To add one, cr
 |---|---|
 | `--workspace DIR` | project folder, default `./workspace` |
 | `--port N` | port, default 8000 |
+| `--host ADDR` | address to listen on, default `127.0.0.1` |
+| `--allow-host NAME` | another name the page may be opened by, such as a Tailscale name (repeatable) |
 | `--lang en\|ru` | language of the page and the agents, default `en`; the page also has an EN/RU switch |
 | `--model M` | model for both agents, for example `opus` or `claude-haiku-5-5` |
 | `--effort` | `low` / `medium` / `high` / `xhigh` / `max` |
-| `--no-bash` | do not let the developer run shell commands |
+| `--no-bash` | do not let the developer run shell commands; checks from `.ai-review.toml` are skipped too, since the developer can edit that file |
 | `--no-skills` | run the agents without the office's skills |
 
-**Safety.** The developer can run commands on your computer; `--no-bash` turns that off. The idea maker may read web pages, so its briefs are untrusted text: each brief tells the developer to stay in the project folder and not to download, install or send anything, but that is an instruction, not a sandbox. With the autopilot on, a brief reaches the developer before you read it; use `--no-bash` or keep the autopilot off when that matters. That is why the server listens only on `127.0.0.1` and rejects requests from other sites: it checks `Host` and `Origin` and accepts only JSON. Do not expose it to a network unless you need to.
+**Safety.** The developer can run commands on your computer; `--no-bash` turns that off. The idea maker may read web pages, so its briefs are untrusted text: each brief tells the developer to stay in the project folder and not to download, install or send anything, but that is an instruction, not a sandbox. With the autopilot on, a brief reaches the developer before you read it; use `--no-bash` or keep the autopilot off when that matters. That is why the server listens only on `127.0.0.1` and rejects requests from other sites: it checks `Host` and `Origin` and accepts only JSON. The page opens only by `localhost`, by the address given to `--host`, or by a name given to `--allow-host`; any other name is refused, so a site that points its own domain at your computer gets nothing. Do not expose it to a network unless you need to.
 
 **Limits.** Each task and each review uses your subscription limits. The dollar amount in the header is Claude Code's estimate, not a charge.
 

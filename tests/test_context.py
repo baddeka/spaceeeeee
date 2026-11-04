@@ -91,3 +91,19 @@ def test_long_check_output_keeps_the_tail(repo):
 def test_empty_tree_constant_matches_git(repo):
     out = context._git(repo, "hash-object", "-t", "tree", "/dev/null")
     assert out.strip() == EMPTY_TREE
+
+
+def test_non_ascii_paths_are_read_not_marked_deleted(repo):
+    (repo / "a.py").write_text("x = 1\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "init")
+    (repo / "заметки.md").write_text("привет\n")
+    (repo / "файл с пробелом.py").write_text("y = 2\n")
+    git(repo, "add", "файл с пробелом.py")
+
+    ctx = context.collect_diff(repo)
+
+    files = {f.path: f for f in ctx.files}
+    assert set(files) == {"заметки.md", "файл с пробелом.py"}
+    assert files["заметки.md"].content == "привет\n" and files["заметки.md"].is_new
+    assert files["файл с пробелом.py"].skipped_reason is None
