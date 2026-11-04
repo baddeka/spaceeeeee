@@ -1,7 +1,7 @@
 [project]
 name = "ai-review"
 version = "0.1.0"
-description = "Code reviewer powered by Claude, grounded in your tests and linters"
+description = "Claude-powered code reviewer and a two-agent web office"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["anthropic>=2.4", "pydantic>=2"]
@@ -11,10 +11,14 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 ai-review = "reviewer.cli:main"
+ai-office = "office.server:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["reviewer"]
+packages = ["reviewer", "office"]
+
+[tool.setuptools.package-data]
+office = ["static/*"]

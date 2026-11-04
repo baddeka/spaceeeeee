@@ -38,7 +38,16 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     p.add_argument("--no-checks", action="store_true", help=f"skip checks from {CONFIG_FILE}")
     p.add_argument("--repo", default=".", help="repository root (default: current directory)")
-    p.add_argument("--model", help=f"Claude model (default: {DEFAULT_MODEL})")
+    p.add_argument(
+        "--backend",
+        choices=["claude-code", "api"],
+        help="claude-code uses your Claude subscription through `claude -p`; "
+        "api uses ANTHROPIC_API_KEY (default: claude-code)",
+    )
+    p.add_argument(
+        "--model",
+        help=f"Claude model (default: {DEFAULT_MODEL} for api, Claude Code's default for claude-code)",
+    )
     p.add_argument(
         "--effort",
         choices=["low", "medium", "high", "xhigh", "max"],
@@ -102,10 +111,12 @@ def main(argv: list[str] | None = None, client=None) -> int:
         print("reviewing...", file=sys.stderr)
         verdict = review(
             ctx,
+            backend=args.backend or config.get("backend", "claude-code"),
             client=client,
-            model=args.model or config.get("model", DEFAULT_MODEL),
+            model=args.model or config.get("model"),
             effort=args.effort or config.get("effort", DEFAULT_EFFORT),
             instructions=config.get("instructions"),
+            cwd=repo,
         )
     except (context.ContextError, ReviewError, tomllib.TOMLDecodeError) as e:
         print(f"ai-review: error: {e}", file=sys.stderr)

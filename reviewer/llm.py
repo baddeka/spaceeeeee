@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 import anthropic
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
+from .claude_code import ClaudeCodeError, ClaudeCodeRun
 from .context import ReviewContext
 
 DEFAULT_MODEL = "claude-opus-5-5"
@@ -40,6 +43,15 @@ input or path that triggers it, and suggest a fix.
 - Report every issue you find with an honest severity; do not hold back minor ones and do \
 not inflate nits. An empty issue list is correct when the change is sound.
 - Review only the change and its direct effects, not unrelated pre-existing code.
+"""
+
+
+# With Claude Code the reviewer can open other files (callers, tests) but never edit them.
+READ_ONLY_TOOLS = ["Read", "Grep", "Glob"]
+
+CLAUDE_CODE_ADDENDUM = """
+You are running inside the repository. When the diff alone is not enough, use Read, Grep \
+and Glob to look at callers, definitions and tests. Never try to modify files.
 """
 
 
@@ -124,11 +136,15 @@ def decide(output: ReviewOutput, ctx: ReviewContext, model: str) -> Verdict:
 def review(
     ctx: ReviewContext,
     *,
+    backend: str = "api",
     client: anthropic.Anthropic | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     effort: str = DEFAULT_EFFORT,
     instructions: str | None = None,
+    cwd: Path | None = None,
+    on_event: Callable[[dict], None] | None = None,
 ) -> Verdict:
+    """Reviews through the Claude API (`backend="api"`) or Claude Code (`"claude-code"`)."""
     if not ctx.diff and not ctx.files:
         raise ReviewError("nothing to review: no changes found")
 
@@ -139,6 +155,18 @@ def review(
             "narrow it with --base or --files"
         )
 
+    if backend == "claude-code":
+        output, served_by = _review_with_claude_code(prompt, model, effort, cwd, on_event)
+    elif backend == "api":
+        output, served_by = _review_with_api(prompt, client, model or DEFAULT_MODEL, effort)
+    else:
+        raise ReviewError(f"unknown backend: {backend}")
+    return decide(output, ctx, served_by)
+
+
+def _review_with_api(
+    prompt: str, client: anthropic.Anthropic | None, model: str, effort: str
+) -> tuple[ReviewOutput, str]:
     client = client or anthropic.Anthropic()
     try:
         with client.beta.messages.stream(
@@ -165,7 +193,9 @@ def review(
         # The SDK raises TypeError before sending when no credentials are configured.
         if "authentication method" not in str(e):
             raise
-        raise ReviewError("no API credentials: set ANTHROPIC_API_KEY") from e
+        raise ReviewError(
+            "no API credentials: set ANTHROPIC_API_KEY or use --backend claude-code"
+        ) from e
 
     if message.stop_reason == "refusal":
         raise ReviewError("the model declined to review this change")
@@ -173,5 +203,34 @@ def review(
         raise ReviewError("the review was cut off at the output limit")
     if message.parsed_output is None:
         raise ReviewError("the model returned no structured review")
+    return message.parsed_output, message.model
 
-    return decide(message.parsed_output, ctx, message.model)
+
+def _review_with_claude_code(
+    prompt: str,
+    model: str | None,
+    effort: str,
+    cwd: Path | None,
+    on_event: Callable[[dict], None] | None,
+) -> tuple[ReviewOutput, str]:
+    run = ClaudeCodeRun(
+        prompt,
+        cwd=cwd or Path.cwd(),
+        tools=READ_ONLY_TOOLS,
+        system_prompt=SYSTEM_PROMPT + CLAUDE_CODE_ADDENDUM,
+        json_schema=ReviewOutput.model_json_schema(),
+        model=model,
+        effort=effort,
+        persist_session=False,
+    )
+    try:
+        result = run.run(on_event)
+    except ClaudeCodeError as e:
+        raise ReviewError(str(e)) from e
+    if result.structured_output is None:
+        raise ReviewError("Claude Code returned no structured review")
+    try:
+        output = ReviewOutput.model_validate(result.structured_output)
+    except ValidationError as e:
+        raise ReviewError(f"Claude Code returned a malformed review: {e}") from e
+    return output, result.model or "claude-code"

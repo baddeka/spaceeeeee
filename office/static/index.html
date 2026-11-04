@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Office</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>AI Office</h1>
+        <p class="workspace" id="workspace">—</p>
+      </div>
+    </div>
+    <div class="meta">
+      <span class="conn" id="conn" data-state="connecting">подключаюсь…</span>
+      <span class="cost" id="cost" title="Стоимость по оценке Claude Code; с подпиской списываются лимиты, а не деньги"></span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="office-col">
+      <div class="room" aria-label="Офис">
+        <div class="wall">
+          <div class="window"><span></span><span></span></div>
+          <div class="poster">SHIP IT</div>
+          <div class="clock" aria-hidden="true"><i></i><b></b></div>
+        </div>
+        <div class="floor"></div>
+
+        <div class="desk" id="desk-worker" data-agent="worker" data-status="idle">
+          <div class="bubble" id="bubble-worker">Жду задачу</div>
+          <div class="desk-art" data-role="worker"></div>
+          <div class="nameplate">
+            <span class="dot"></span>
+            <strong>Исполнитель</strong>
+            <span class="status-text" id="status-worker">свободен</span>
+          </div>
+        </div>
+
+        <div class="plant" aria-hidden="true"></div>
+
+        <div class="desk" id="desk-reviewer" data-agent="reviewer" data-status="idle">
+          <div class="bubble" id="bubble-reviewer">Позови, когда нужно проверить</div>
+          <div class="desk-art" data-role="reviewer"></div>
+          <div class="nameplate">
+            <span class="dot"></span>
+            <strong>Ревьюер</strong>
+            <span class="status-text" id="status-reviewer">свободен</span>
+          </div>
+        </div>
+      </div>
+
+      <form class="panel task" id="task-form">
+        <label for="task-input">Задача для исполнителя</label>
+        <textarea id="task-input" rows="3" placeholder="Например: сделай CLI на Python, который считает слова в файле, и напиши к нему тесты"></textarea>
+        <div class="actions">
+          <button type="submit" class="btn primary" id="btn-task">Дать задачу</button>
+          <button type="button" class="btn" id="btn-review">Позвать ревьюера</button>
+          <button type="button" class="btn warn" id="btn-rework">На доработку</button>
+          <button type="button" class="btn ok" id="btn-accept">Принять</button>
+          <button type="button" class="btn ghost" id="btn-stop">Остановить</button>
+        </div>
+        <p class="hint" id="hint"></p>
+      </form>
+    </section>
+
+    <aside class="side-col">
+      <section class="panel verdict" id="verdict" hidden>
+        <div class="verdict-head">
+          <span class="stamp" id="verdict-stamp"></span>
+          <div>
+            <h2 id="verdict-title"></h2>
+            <p class="verdict-reasons" id="verdict-reasons"></p>
+          </div>
+        </div>
+        <p class="verdict-summary" id="verdict-summary"></p>
+        <ul class="checks" id="verdict-checks"></ul>
+        <ol class="issues" id="verdict-issues"></ol>
+      </section>
+
+      <section class="panel log">
+        <h2>Журнал</h2>
+        <ol class="feed" id="feed"></ol>
+        <p class="empty" id="feed-empty">Пока тихо. Дай исполнителю задачу.</p>
+      </section>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -124,7 +124,7 @@ def test_cli_exit_codes_and_json(repo, capsys):
     (repo / ".ai-review.toml").write_text('checks = ["exit 1"]\neffort = "low"\n')
     client = FakeClient(parsed_output=ReviewOutput(summary="looks fine", issues=[]))
 
-    code = cli.main(["--repo", str(repo), "--json"], client=client)
+    code = cli.main(["--repo", str(repo), "--backend", "api", "--json"], client=client)
 
     out = json.loads(capsys.readouterr().out)
     assert code == cli.EXIT_CHANGES_REQUESTED
@@ -137,7 +137,7 @@ def test_cli_approves_clean_change(repo, capsys):
     (repo / "a.py").write_text("x = 1\n")
     client = FakeClient(parsed_output=ReviewOutput(summary="fine", issues=[make_issue("nit")]))
 
-    code = cli.main(["--repo", str(repo), "--check", "true"], client=client)
+    code = cli.main(["--repo", str(repo), "--backend", "api", "--check", "true"], client=client)
 
     assert code == cli.EXIT_APPROVED
     assert "APPROVED" in capsys.readouterr().out
