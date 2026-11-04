@@ -44,6 +44,7 @@ class ClaudeCodeRun:
         resume: str | None = None,
         accept_edits: bool = False,
         persist_session: bool = True,
+        plugin_dirs: list[Path] | None = None,
         claude_bin: str | None = None,
     ):
         self.prompt = prompt
@@ -73,6 +74,9 @@ class ClaudeCodeRun:
             args += ["--permission-mode", "acceptEdits"]
         if not persist_session:
             args.append("--no-session-persistence")
+        # Plugins loaded this way exist for this run only, so each agent can get its own skills.
+        for directory in plugin_dirs or []:
+            args += ["--plugin-dir", str(directory)]
         self.args = args
 
     def run(self, on_event: Callable[[dict], None] | None = None) -> RunResult:

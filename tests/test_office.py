@@ -35,7 +35,7 @@ def fake_claude(tmp_path, monkeypatch):
 
 
 def make_office(tmp_path):
-    return Office(tmp_path / "ws")
+    return Office(tmp_path / "ws", lang="ru")
 
 
 def test_claude_code_run_streams_events_and_returns_result(fake_claude, tmp_path):
@@ -43,7 +43,7 @@ def test_claude_code_run_streams_events_and_returns_result(fake_claude, tmp_path
     result = ClaudeCodeRun("do it", cwd=tmp_path, tools=["Read", "Write"]).run(events.append)
 
     assert result.session_id == "sess-1"
-    assert result.text == "Создал app.py."
+    assert result.text == "Done: app.py prints hello. Run it with python3 app.py."
     assert result.model == "claude-test"
     assert [e["type"] for e in events] == ["system", "assistant", "result"]
     call = fake_claude()[0]
@@ -176,9 +176,47 @@ def test_worker_error_is_reported(fake_claude, tmp_path, monkeypatch):
 
 
 def test_describe_tool():
-    assert describe_tool("Write", {"file_path": "/a/b/app.py"}) == "Создаю app.py"
-    assert describe_tool("Bash", {"command": "pytest -q\nmore"}) == "Запускаю: pytest -q"
-    assert describe_tool("Mystery", {}) == "Использую Mystery"
+    assert describe_tool("Write", {"file_path": "/a/b/app.py"}) == "Creating app.py"
+    assert describe_tool("Write", {"file_path": "/a/b/app.py"}, "ru") == "Создаю app.py"
+    assert describe_tool("Bash", {"command": "pytest -q\nmore"}, "ru") == "Запускаю: pytest -q"
+    assert describe_tool("Mystery", {}) == "Using Mystery"
+
+
+def test_english_office_talks_to_agents_in_english(fake_claude, tmp_path):
+    office = Office(tmp_path / "ws")
+    assert office.snapshot()["lang"] == "en"
+    assert office.agents["worker"]["bubble"] == "Waiting for a task"
+
+    office.start_task("Make hello world")
+    office.wait_idle()
+    office.request_review()
+    office.wait_idle()
+
+    worker_call, review_call = fake_claude()
+    assert worker_call["prompt"].endswith("Reply in English.")
+    assert "in English." in review_call["prompt"]
+    assert office.agents["worker"]["bubble"] == "Done! Ready for review"
+
+
+def test_switching_language_translates_fixed_bubbles(fake_claude, tmp_path):
+    office = Office(tmp_path / "ws")
+    office._set_agent("reviewer", bubble="Reading app.py live from the model")
+
+    office.set_language("ru")
+
+    assert office.agents["worker"]["bubble"] == "Жду задачу"
+    # Text an agent produced stays as it was written.
+    assert office.agents["reviewer"]["bubble"] == "Reading app.py live from the model"
+    office.start_task("x")
+    office.wait_idle()
+    assert fake_claude()[-1]["prompt"].endswith("Отвечай по-русски.")
+    with pytest.raises(ValueError):
+        office.set_language("de")
+
+
+def test_unknown_language_is_rejected_at_start(tmp_path):
+    with pytest.raises(ValueError):
+        Office(tmp_path / "ws", lang="de")
 
 
 def test_rework_allowed_for_approved_verdict_with_minor_issues(fake_claude, tmp_path):
@@ -250,6 +288,14 @@ def test_http_blocks_cross_site_posts(server):
     assert status == 403
     status, _ = request(base + "/api/state", headers={"Host": "evil.example:8000"})
     assert status == 403
+
+
+def test_http_switches_language(server):
+    base, office = server
+    status, body = request(base + "/api/lang", "POST", {"lang": "en"}, {"Content-Type": "application/json"})
+    assert status == 200 and json.loads(body)["lang"] == "en"
+    status, _ = request(base + "/api/lang", "POST", {"lang": "xx"}, {"Content-Type": "application/json"})
+    assert status == 400
 
 
 def test_http_reports_action_errors(server):

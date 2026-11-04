@@ -76,17 +76,33 @@ class Verdict:
     issues: list[Issue]
     model: str
     reasons: list[str]
+    cost_usd: float | None = None
 
 
 class ReviewError(Exception):
     pass
 
 
-def build_prompt(ctx: ReviewContext, instructions: str | None = None) -> str:
+def build_prompt(
+    ctx: ReviewContext,
+    instructions: str | None = None,
+    previous: list[dict] | None = None,
+) -> str:
     parts = [f"# Scope\n{ctx.description}\n"]
 
     if instructions:
         parts.append(f"# Project-specific review instructions\n{instructions}\n")
+
+    if previous:
+        parts.append(
+            "# Notes from the previous review\n"
+            "The developer was asked to fix these. Decide for each whether it is fixed, partly fixed, "
+            "or not fixed, and report every one that is not fully fixed again."
+        )
+        for n, issue in enumerate(previous, 1):
+            where = f"{issue['file']}:{issue['line']}" if issue.get("line") else issue.get("file", "")
+            parts.append(f"{n}. [{issue['severity']}] {where} {issue['title']}: {issue['explanation']}")
+        parts.append("")
 
     if ctx.checks:
         parts.append("# Check results")
@@ -110,6 +126,8 @@ def build_prompt(ctx: ReviewContext, instructions: str | None = None) -> str:
     for f in ctx.files:
         if f.content is None:
             parts.append(f"## {f.path}\n(not shown: {f.skipped_reason})")
+        elif f.is_new and ctx.diff:
+            parts.append(f"## {f.path}\n(new file: every line is in the diff above)")
         else:
             parts.append(f"## {f.path}\n```\n{f.content}\n```")
 
@@ -143,25 +161,36 @@ def review(
     instructions: str | None = None,
     cwd: Path | None = None,
     on_event: Callable[[dict], None] | None = None,
+    plugin_dirs: list[Path] | None = None,
+    previous: list[dict] | None = None,
 ) -> Verdict:
-    """Reviews through the Claude API (`backend="api"`) or Claude Code (`"claude-code"`)."""
+    """Reviews through the Claude API (`backend="api"`) or Claude Code (`"claude-code"`).
+
+    `plugin_dirs` gives a Claude Code reviewer extra skills; `previous` lists the notes of the
+    last review so a re-review checks they were fixed.
+    """
     if not ctx.diff and not ctx.files:
         raise ReviewError("nothing to review: no changes found")
 
-    prompt = build_prompt(ctx, instructions)
+    prompt = build_prompt(ctx, instructions, previous)
     if len(prompt) > MAX_PROMPT_CHARS:
         raise ReviewError(
             f"the change is too large to review in one request ({len(prompt):,} characters); "
             "narrow it with --base or --files"
         )
 
+    cost = None
     if backend == "claude-code":
-        output, served_by = _review_with_claude_code(prompt, model, effort, cwd, on_event)
+        output, served_by, cost = _review_with_claude_code(
+            prompt, model, effort, cwd, on_event, plugin_dirs
+        )
     elif backend == "api":
         output, served_by = _review_with_api(prompt, client, model or DEFAULT_MODEL, effort)
     else:
         raise ReviewError(f"unknown backend: {backend}")
-    return decide(output, ctx, served_by)
+    verdict = decide(output, ctx, served_by)
+    verdict.cost_usd = cost
+    return verdict
 
 
 def _review_with_api(
@@ -212,16 +241,19 @@ def _review_with_claude_code(
     effort: str,
     cwd: Path | None,
     on_event: Callable[[dict], None] | None,
-) -> tuple[ReviewOutput, str]:
+    plugin_dirs: list[Path] | None,
+) -> tuple[ReviewOutput, str, float | None]:
     run = ClaudeCodeRun(
         prompt,
         cwd=cwd or Path.cwd(),
-        tools=READ_ONLY_TOOLS,
+        # Skills only add instructions, so the reviewer stays read-only with them.
+        tools=READ_ONLY_TOOLS + (["Skill"] if plugin_dirs else []),
         system_prompt=SYSTEM_PROMPT + CLAUDE_CODE_ADDENDUM,
         json_schema=ReviewOutput.model_json_schema(),
         model=model,
         effort=effort,
         persist_session=False,
+        plugin_dirs=plugin_dirs,
     )
     try:
         result = run.run(on_event)
@@ -233,4 +265,4 @@ def _review_with_claude_code(
         output = ReviewOutput.model_validate(result.structured_output)
     except ValidationError as e:
         raise ReviewError(f"Claude Code returned a malformed review: {e}") from e
-    return output, result.model or "claude-code"
+    return output, result.model or "claude-code", result.cost_usd

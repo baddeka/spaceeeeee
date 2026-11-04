@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -19,8 +19,12 @@
       </div>
     </div>
     <div class="meta">
-      <span class="conn" id="conn" data-state="connecting">подключаюсь…</span>
-      <span class="cost" id="cost" title="Стоимость по оценке Claude Code; с подпиской списываются лимиты, а не деньги"></span>
+      <div class="lang-switch" role="group" aria-label="Language">
+        <button type="button" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ru" aria-pressed="false">RU</button>
+      </div>
+      <span class="conn" id="conn" data-state="connecting" data-i18n="connecting">connecting…</span>
+      <span class="cost" id="cost" data-i18n-title="cost_title"></span>
     </div>
   </header>
 
@@ -28,35 +32,49 @@
     <section class="office-col">
       <div class="room">
         <div class="stage" id="stage">
-          <canvas id="scene" role="img" aria-label="Пиксельный офис: исполнитель и ревьюер за своими столами"></canvas>
+          <canvas id="scene" role="img" data-i18n-label="scene_label"></canvas>
 
           <div class="agent" id="desk-worker" data-agent="worker" data-status="idle">
-            <div class="bubble" id="bubble-worker">Жду задачу</div>
-            <div class="nameplate" id="plate-worker">
-              <span class="dot"></span><strong>ИСПОЛНИТЕЛЬ</strong>
-              <span class="status-text" id="status-worker">свободен</span>
-            </div>
+            <div class="bubble" id="bubble-worker"></div>
+            <button type="button" class="nameplate" id="plate-worker" data-drawer="worker" data-i18n-title="open_drawer">
+              <span class="dot"></span><strong data-i18n="worker_plate">DEVELOPER</strong>
+              <span class="status-text" id="status-worker"></span>
+            </button>
           </div>
 
           <div class="agent" id="desk-reviewer" data-agent="reviewer" data-status="idle">
-            <div class="bubble" id="bubble-reviewer">Позови, когда нужно проверить</div>
-            <div class="nameplate" id="plate-reviewer">
-              <span class="dot"></span><strong>РЕВЬЮЕР</strong>
-              <span class="status-text" id="status-reviewer">свободен</span>
-            </div>
+            <div class="bubble" id="bubble-reviewer"></div>
+            <button type="button" class="nameplate" id="plate-reviewer" data-drawer="reviewer" data-i18n-title="open_drawer">
+              <span class="dot"></span><strong data-i18n="reviewer_plate">REVIEWER</strong>
+              <span class="status-text" id="status-reviewer"></span>
+            </button>
           </div>
         </div>
       </div>
 
       <form class="panel task" id="task-form">
-        <label for="task-input">ЗАДАЧА ДЛЯ ИСПОЛНИТЕЛЯ</label>
-        <textarea id="task-input" rows="3" placeholder="Например: сделай CLI на Python, который считает слова в файле, и напиши к нему тесты"></textarea>
+        <label for="task-input" data-i18n="task_label">TASK FOR THE DEVELOPER</label>
+        <textarea id="task-input" rows="3" data-i18n-placeholder="task_placeholder"></textarea>
         <div class="actions">
-          <button type="submit" class="btn primary" id="btn-task">Дать задачу</button>
-          <button type="button" class="btn review" id="btn-review">Позвать ревьюера</button>
-          <button type="button" class="btn warn" id="btn-rework">На доработку</button>
-          <button type="button" class="btn ok" id="btn-accept">Принять</button>
-          <button type="button" class="btn ghost" id="btn-stop">Стоп</button>
+          <button type="submit" class="btn primary" id="btn-task" data-i18n="btn_task">Give task</button>
+          <button type="button" class="btn review" id="btn-review" data-i18n="btn_review">Call reviewer</button>
+          <button type="button" class="btn warn" id="btn-rework" data-i18n="btn_rework">Send back</button>
+          <button type="button" class="btn ok" id="btn-accept" data-i18n="btn_accept">Accept</button>
+          <button type="button" class="btn ghost" id="btn-stop" data-i18n="btn_stop">Stop</button>
+        </div>
+        <div class="autopilot" id="autopilot" data-state="off">
+          <label class="switch">
+            <input type="checkbox" id="autopilot-toggle">
+            <span class="track" aria-hidden="true"></span>
+            <span class="switch-label" data-i18n="autopilot_label">AUTOPILOT</span>
+          </label>
+          <label class="rounds">
+            <span data-i18n="rounds_label">Rounds</span>
+            <select id="autopilot-rounds">
+              <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>10</option>
+            </select>
+          </label>
+          <span class="autopilot-status" id="autopilot-status" aria-live="polite"></span>
         </div>
         <p class="hint" id="hint"></p>
       </form>
@@ -77,12 +95,38 @@
       </section>
 
       <section class="panel log">
-        <h2>ЖУРНАЛ</h2>
+        <h2 data-i18n="log_title">LOG</h2>
         <ol class="feed" id="feed"></ol>
-        <p class="empty" id="feed-empty">Пока тихо. Дай исполнителю задачу.</p>
+        <p class="empty" id="feed-empty" data-i18n="log_empty"></p>
       </section>
     </aside>
   </main>
+
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" data-agent="worker">
+    <header class="drawer-head">
+      <canvas class="portrait" id="drawer-portrait" width="20" height="20" aria-hidden="true"></canvas>
+      <div class="drawer-who">
+        <h2 id="drawer-title"></h2>
+        <p class="drawer-status" id="drawer-status"></p>
+      </div>
+      <button type="button" class="drawer-close" id="drawer-close" data-i18n-label="close">✕</button>
+    </header>
+    <div class="drawer-body">
+      <section>
+        <h3 data-i18n="now_title">NOW</h3>
+        <p class="drawer-bubble" id="drawer-bubble"></p>
+      </section>
+      <section>
+        <h3 data-i18n="skills_title">SKILLS</h3>
+        <ul class="skills" id="drawer-skills"></ul>
+      </section>
+      <section>
+        <h3 data-i18n="activity_title">ACTIVITY</h3>
+        <ol class="feed drawer-feed" id="drawer-log"></ol>
+      </section>
+    </div>
+  </aside>
 
   <div class="toast" id="toast" role="status" hidden></div>
 

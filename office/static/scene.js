@@ -576,6 +576,31 @@
     rect(c, x + 4, y + 4, 1, 1, C.red);
   }
 
+  // A sign above the door that lights up while the autopilot runs.
+  const GLYPHS = {
+    A: [".X.", "X.X", "XXX", "X.X", "X.X"],
+    U: ["X.X", "X.X", "X.X", "X.X", "XXX"],
+    T: ["XXX", ".X.", ".X.", ".X.", ".X."],
+    O: ["XXX", "X.X", "X.X", "X.X", "XXX"],
+  };
+
+  function drawSign(c) {
+    const pilot = state?.autopilot;
+    const running = pilot?.enabled && !pilot.halted;
+    const halted = pilot?.enabled && pilot.halted;
+    const x = 148;
+    const y = 1;
+    rect(c, x, y, 26, 8, C.outline);
+    rect(c, x + 1, y + 1, 24, 6, running ? "#b32b3a" : halted ? "#5a3d1e" : "#3b3346");
+    const lit = running ? (frame % 8 < 6 ? "#ffe066" : "#ffb84a") : halted ? "#e8a13a" : "#6d6478";
+    let gx = x + 6;
+    for (const letter of "AUTO") {
+      sprite(c, GLYPHS[letter], gx, y + 2, { X: lit });
+      gx += 4;
+    }
+    if (running) rect(c, x + 3, y + 3, 1, 1, frame % 4 < 2 ? "#ffe066" : "#b32b3a");
+  }
+
   function drawBoardSticky(c) {
     if (!state || state.task === null) return;
     const worker = state.agents.worker.status;
@@ -611,6 +636,7 @@
   function draw() {
     ctx.drawImage(background, 0, 0);
     drawClock(ctx);
+    drawSign(ctx);
     drawBoardSticky(ctx);
     for (const name of Object.keys(AGENTS)) {
       const status = state ? state.agents[name].status : "idle";
@@ -655,6 +681,36 @@
     plate.style.top = `${(130 / H) * 100}%`;
   }
 
+  // Clicking an agent's desk opens that agent's drawer.
+  function agentAt(event) {
+    const box = canvas.getBoundingClientRect();
+    const x = ((event.clientX - box.left) / box.width) * W;
+    const y = ((event.clientY - box.top) / box.height) * H;
+    for (const [name, a] of Object.entries(AGENTS)) {
+      if (Math.abs(x - a.cx) <= 34 && y >= 70 && y <= 132) return name;
+    }
+    return null;
+  }
+  canvas.addEventListener("click", (event) => {
+    const agent = agentAt(event);
+    if (agent) window.dispatchEvent(new CustomEvent("office:agent-click", { detail: { agent } }));
+  });
+  canvas.addEventListener("mousemove", (event) => {
+    canvas.style.cursor = agentAt(event) ? "pointer" : "";
+  });
+
+  function drawPortrait(target, name) {
+    const a = AGENTS[name];
+    const c = target.getContext("2d");
+    target.width = 20;
+    target.height = 20;
+    rect(c, 0, 0, 20, 20, name === "worker" ? "#cfe0fb" : "#e4d6fb");
+    rect(c, 0, 15, 20, 5, C.chair);
+    sprite(c, SPRITES.body, 3, 12, { T: a.shirt, t: a.shirtDark });
+    const head = name === "worker" ? SPRITES.headWorker : SPRITES.headReviewer;
+    sprite(c, head, 5, name === "worker" ? 4 : 3, { H: a.hair, h: a.hairLight, K: "#1b1d22", S: C.skin });
+  }
+
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!reducedMotion) {
     setInterval(() => {
@@ -664,6 +720,7 @@
   }
 
   window.OfficeScene = {
+    drawPortrait,
     setState(next) {
       const prev = state;
       state = next;

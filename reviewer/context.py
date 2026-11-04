@@ -22,6 +22,8 @@ class FileSnapshot:
     path: str
     content: str | None
     skipped_reason: str | None = None
+    # A new file's every line is already in the diff, so its content need not be sent twice.
+    is_new: bool = False
 
 
 @dataclass
@@ -96,15 +98,19 @@ def collect_diff(repo: Path, base: str | None = None) -> ReviewContext:
     target, description = _resolve_target(repo, base)
     diff = _git(repo, "diff", target)
     changed = _git(repo, "diff", "--name-only", target).splitlines()
+    added = set(_git(repo, "diff", "--name-only", "--diff-filter=A", target).splitlines())
     untracked = _git(repo, "ls-files", "--others", "--exclude-standard").splitlines()
 
     # Untracked files never show up in `git diff`, but they are part of the change.
     for rel_path in untracked:
         if rel_path not in changed:
             changed.append(rel_path)
+            added.add(rel_path)
             diff += _untracked_as_diff(repo, rel_path)
 
     files = [read_snapshot(repo, p) for p in sorted(changed)]
+    for snapshot in files:
+        snapshot.is_new = snapshot.path in added
     return ReviewContext(description=description, diff=diff, files=files)
 
 

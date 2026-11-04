@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from reviewer.context import ContextError
 
 from .agents import WORKER_TOOLS, Busy, Office
+from .i18n import LANGUAGES
 
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript"}
@@ -82,6 +83,10 @@ def make_handler(office: Office, allow_remote: bool = False):
                 "/api/rework": office.send_rework,
                 "/api/accept": office.accept,
                 "/api/stop": office.stop,
+                "/api/lang": lambda: office.set_language(str(body.get("lang", ""))),
+                "/api/autopilot": lambda: office.set_autopilot(
+                    body.get("enabled") is True, body.get("max_rounds")
+                ),
             }
             action = actions.get(urlsplit(self.path).path)
             if action is None:
@@ -134,11 +139,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", help="Claude model for both agents (default: Claude Code's default)")
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--no-bash", action="store_true", help="do not let the worker run shell commands")
+    p.add_argument("--lang", choices=LANGUAGES, default="en", help="language of the page and the agents (default: en)")
+    p.add_argument("--no-skills", action="store_true", help="run the agents without the office's skills")
     args = p.parse_args(argv)
 
     workspace = Path(args.workspace).resolve()
     tools = [t for t in WORKER_TOOLS if not (args.no_bash and t == "Bash")]
-    office = Office(workspace, model=args.model, effort=args.effort, worker_tools=tools)
+    office = Office(
+        workspace,
+        model=args.model,
+        effort=args.effort,
+        worker_tools=tools,
+        lang=args.lang,
+        skills=not args.no_skills,
+    )
 
     allow_remote = args.host not in LOOPBACK_NAMES
     server = ThreadingHTTPServer((args.host, args.port), make_handler(office, allow_remote))

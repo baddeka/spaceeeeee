@@ -38,10 +38,14 @@ if "--json-schema" in args:
           "structured_output": review, "session_id": session, "total_cost_usd": 0.01,
           "modelUsage": {"claude-test": {}}})
 else:
+    if skill := os.environ.get("FAKE_CLAUDE_SKILL"):
+        emit({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Skill", "input": {"skill": f"worker-skills:{skill}"}},
+        ]}})
     Path("app.py").write_text("print('hello')\n")
     emit({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Write", "input": {"file_path": str(Path.cwd() / "app.py")}},
-        {"type": "text", "text": "Готово: создал app.py"},
+        {"type": "text", "text": "Created app.py with a hello world."},
     ]}})
-    emit({"type": "result", "subtype": "success", "is_error": False, "result": "Создал app.py.",
+    emit({"type": "result", "subtype": "success", "is_error": False, "result": "Done: app.py prints hello. Run it with python3 app.py.",
           "session_id": session, "total_cost_usd": 0.02, "modelUsage": {"claude-test": {}}})
