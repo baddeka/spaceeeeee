@@ -93,6 +93,18 @@ Each agent has its own skills: Claude Code skills, loaded only into that agent's
 
 The skills live in `office/skills/<role>/skills/<name>/SKILL.md`. To add one, create a folder with a `SKILL.md` there; its `description` tells the agent when to use it. A label for the page in each language can go in `office/i18n.py` as `skill_<name>`.
 
+### Model and effort
+
+Each agent's drawer has a **Model** list (Haiku, Sonnet, Opus, Fable) and an **Effort** list (`low` to `max`), so idearen can think on a cheap model while coderen builds on a strong one. A choice applies from the agent's next run and is kept in `~/.rens-office.json`. **auto** means `--model` or `--effort` from the command line, else Claude Code's default; checkren's effort on auto is the project's `effort`, else `high`. If Claude Code answers "You're out of usage credits", that model needs usage credits on your plan: pick another one.
+
+### Projects
+
+A project is the `--workspace` folder. Everything coderen makes stays there after the office stops, with its git history. To come back to a project, start the office with the same folder; for a new project, give it a new folder. Only these live while the office runs: coderen's conversation, the verdict, idearen's ideas and the log. After a restart coderen starts a new conversation and reads the files again.
+
+Accept the work before you stop the office. The first task after a start commits everything in the folder as `office: before task`, so changes you had not accepted would no longer count as the change checkren reviews.
+
+To work on an existing repository, such as your team's, point `--workspace` at your clone and switch to a branch of your own first. The office commits on the current branch, as "Rens Office", and never pushes. Keep secrets such as `.env` in `.gitignore`: the office commits every file git does not ignore.
+
 ### Options
 
 | Flag | What it does |
@@ -102,8 +114,8 @@ The skills live in `office/skills/<role>/skills/<name>/SKILL.md`. To add one, cr
 | `--host ADDR` | address to listen on, default `127.0.0.1` |
 | `--allow-host NAME` | another name the page may be opened by, such as a Tailscale name (repeatable) |
 | `--lang en\|ru` | language of the page and the agents, default `en`; the page also has an EN/RU switch |
-| `--model M` | model for all three agents, for example `opus` or `claude-haiku-5-5` |
-| `--effort` | `low` / `medium` / `high` / `xhigh` / `max` |
+| `--model M` | model for the agents left on auto in their drawer, for example `opus` or `claude-haiku-5-5` |
+| `--effort` | `low` / `medium` / `high` / `xhigh` / `max`, for the agents left on auto |
 | `--no-bash` | do not let the developer run shell commands; checks from `.ai-review.toml` are skipped too, since the developer can edit that file |
 | `--no-skills` | run the agents without the office's skills |
 

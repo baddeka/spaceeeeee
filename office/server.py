@@ -25,6 +25,8 @@ STATIC_TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascrip
 LOOPBACK_NAMES = {"localhost", "127.0.0.1", "::1"}
 WILDCARD_HOSTS = {"", "0.0.0.0", "::"}
 HEARTBEAT_SECONDS = 15
+# The model and effort picked for each agent on the page, kept between starts.
+CHOICES_FILE = Path.home() / ".rens-office.json"
 # A client that stops reading (a sleeping laptop, a phone with the page in the background) is
 # dropped after this long, instead of holding a thread and piling up events. Above the heartbeat.
 SOCKET_TIMEOUT_SECONDS = 60
@@ -140,6 +142,9 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
                 "/api/handoff": lambda: office.hand_off(body.get("index")),
                 "/api/lang": lambda: office.set_language(str(body.get("lang", ""))),
                 "/api/limits": office.refresh_limits,
+                "/api/choice": lambda: office.set_choice(
+                    str(body.get("agent", "")), body.get("model") or None, body.get("effort") or None
+                ),
                 "/api/autopilot": lambda: office.set_autopilot(
                     body.get("enabled") is True, body.get("max_rounds")
                 ),
@@ -218,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         worker_tools=tools,
         lang=args.lang,
         skills=not args.no_skills,
+        choices_file=CHOICES_FILE,
     )
 
     bind_host = args.host.strip("[]")

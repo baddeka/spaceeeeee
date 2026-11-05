@@ -553,7 +553,8 @@ code {
 .switch-label { font: 16px/1.2 var(--pixel-font); letter-spacing: 0.05em; }
 
 .rounds { display: inline-flex; align-items: center; gap: 8px; font-size: 18px; color: var(--muted); }
-.rounds select {
+.rounds select, .choice select {
+  max-width: 100%;
   padding: 3px 6px;
   font: inherit;
   color: var(--text);
@@ -660,6 +661,10 @@ body.drawer-open { overflow: hidden; }
   box-shadow: 3px 3px 0 rgb(43 36 51 / 35%);
   overflow-wrap: anywhere;
 }
+
+.choice-row { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.choice { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 18px; color: var(--muted); }
+.choice-note { margin: 8px 0 0; font-size: 17px; color: var(--muted); }
 
 .skills { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .skill {

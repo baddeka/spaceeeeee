@@ -479,3 +479,77 @@ def test_http_limits_check(server, fake_claude):  # noqa: F811
 
     assert status == 200
     assert arg(fake_claude()[0], "--model") == "haiku"
+
+
+# ---------- model and effort per agent ----------
+
+
+def test_each_agent_runs_with_its_own_model_and_effort(fake_claude, tmp_path):
+    office = Office(tmp_path / "ws")
+    office.set_choice("worker", "sonnet", "low")
+    office.set_choice("reviewer", "opus", "xhigh")
+
+    office.start_task("x")
+    office.wait_idle()
+    office.request_review()
+    office.wait_idle()
+
+    worker, reviewer = work(fake_claude())[0], reviews(fake_claude())[0]
+    assert (arg(worker, "--model"), arg(worker, "--effort")) == ("sonnet", "low")
+    assert (arg(reviewer, "--model"), arg(reviewer, "--effort")) == ("opus", "xhigh")
+
+
+def test_auto_falls_back_to_the_command_line_then_to_defaults(fake_claude, tmp_path):
+    office = Office(tmp_path / "ws", model="haiku")
+    office.set_choice("worker", None, "medium")
+
+    office.start_task("x")
+    office.wait_idle()
+    office.request_review()
+    office.wait_idle()
+
+    worker, reviewer = work(fake_claude())[0], reviews(fake_claude())[0]
+    assert (arg(worker, "--model"), arg(worker, "--effort")) == ("haiku", "medium")
+    assert arg(reviewer, "--model") == "haiku"
+    assert arg(reviewer, "--effort") == "high"  # the reviewer's own default
+    assert office.snapshot()["defaults"] == {"model": "haiku", "effort": None}
+
+
+def test_choices_are_checked(tmp_path):
+    office = Office(tmp_path / "ws")
+    for agent, model, effort in [("boss", "opus", None), ("worker", "gpt", None), ("worker", None, "huge")]:
+        with pytest.raises(ValueError):
+            office.set_choice(agent, model, effort)
+    assert office.choices["worker"] == {"model": None, "effort": None}
+
+
+def test_choices_stay_after_a_restart(tmp_path):
+    saved = tmp_path / "choices.json"
+    Office(tmp_path / "ws", choices_file=saved).set_choice("ideator", "haiku", "low")
+
+    again = Office(tmp_path / "ws", choices_file=saved)
+
+    assert again.snapshot()["choices"]["ideator"] == {"model": "haiku", "effort": "low"}
+    assert again.choices["worker"] == {"model": None, "effort": None}
+
+
+def test_a_broken_choices_file_means_auto(tmp_path):
+    saved = tmp_path / "choices.json"
+    saved.write_text('{"agents": {"worker": {"model": "gpt-9", "effort": "low"}, "reviewer": [1]}')  # not even JSON
+
+    office = Office(tmp_path / "ws", choices_file=saved)
+    assert office.choices["worker"] == {"model": None, "effort": None}
+
+    saved.write_text('{"agents": {"worker": {"model": "gpt-9", "effort": "low"}, "reviewer": [1]}}')
+    office = Office(tmp_path / "ws", choices_file=saved)
+    assert office.choices["worker"] == {"model": None, "effort": "low"}
+    assert office.choices["reviewer"] == {"model": None, "effort": None}
+
+
+def test_http_choice(server):  # noqa: F811
+    base, _ = server
+    json_header = {"Content-Type": "application/json"}
+
+    status, body = request(base + "/api/choice", "POST", {"agent": "worker", "model": "opus", "effort": ""}, json_header)
+    assert status == 200 and json.loads(body)["choices"]["worker"] == {"model": "opus", "effort": None}
+    assert request(base + "/api/choice", "POST", {"agent": "worker", "model": "gpt"}, json_header)[0] == 400

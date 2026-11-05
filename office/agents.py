@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -12,7 +13,7 @@ from pathlib import Path
 from reviewer import context
 from reviewer.claude_code import STOP_GRACE_SECONDS, ClaudeCodeRun, ClaudeCodeStopped
 from reviewer.cli import load_config
-from reviewer.llm import BLOCKING, DEFAULT_EFFORT, Issue, Verdict, review
+from reviewer.llm import BLOCKING, DEFAULT_EFFORT, EFFORTS, Issue, Verdict, review
 from reviewer.processes import kill_tree
 
 from .i18n import LANGUAGES, has, t
@@ -68,6 +69,9 @@ LOG_LIMIT = 500
 FAST_FAIL_OUTPUT_CHARS = 2500
 DEFAULT_ROUNDS = 3
 MAX_ROUNDS = 10
+
+# Claude Code's aliases for the newest model of each kind, cheapest first; the page offers these.
+MODEL_CHOICES = ("haiku", "sonnet", "opus", "fable")
 
 # Subscription limit windows as Claude Code names them, in the order the page shows them.
 LIMIT_WINDOWS = ("five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet")
@@ -181,6 +185,7 @@ class Office:
         worker_tools: list[str] | None = None,
         lang: str = "en",
         skills: bool = True,
+        choices_file: Path | None = None,
     ):
         if lang not in LANGUAGES:
             raise ValueError(f"unknown language: {lang}")
@@ -191,6 +196,11 @@ class Office:
         self.worker_tools = worker_tools if worker_tools is not None else WORKER_TOOLS
         self.skills = {role: load_skills(role) if skills else [] for role in ROLES}
         self._plugin_dirs = {role: [SKILLS_DIR / role] if skills else [] for role in ROLES}
+        # Each agent's model and effort as picked on the page, kept in `choices_file` between starts.
+        # None is "auto": the command line's --model / --effort, else what Claude Code picks.
+        self._choices_file = choices_file
+        self.choices = {role: {"model": None, "effort": None} for role in ROLES}
+        self._load_choices()
 
         self._lock = threading.RLock()
         self._subscribers: list[queue.Queue] = []
@@ -248,6 +258,10 @@ class Office:
                 "cost_usd": round(self.cost_usd, 4),
                 "limits": [dict(window) for window in self.limits] if self.limits else None,
                 "limits_checking": self._limits_run is not None,
+                "choices": {role: dict(choice) for role, choice in self.choices.items()},
+                "defaults": {"model": self.model, "effort": self.effort},
+                "model_choices": list(MODEL_CHOICES),
+                "effort_choices": list(EFFORTS),
                 "topic": self.topic,
                 "ideas": [dict(idea) for idea in self.ideas] if self.ideas else None,
                 "lang": self.lang,
@@ -278,6 +292,41 @@ class Office:
                     key, values = source
                     self.agents[name]["bubble"] = self._t(key, **values)
         self._emit_state()
+
+    def _load_choices(self) -> None:
+        if self._choices_file is None or not self._choices_file.is_file():
+            return
+        try:
+            saved = json.loads(self._choices_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return  # an unreadable file only means auto everywhere; the next choice rewrites it
+        agents = saved.get("agents") if isinstance(saved, dict) else None
+        for role in ROLES:
+            choice = agents.get(role) if isinstance(agents, dict) else None
+            if isinstance(choice, dict):
+                self.choices[role] = {
+                    "model": choice.get("model") if choice.get("model") in MODEL_CHOICES else None,
+                    "effort": choice.get("effort") if choice.get("effort") in EFFORTS else None,
+                }
+
+    def set_choice(self, agent: str, model: str | None, effort: str | None) -> None:
+        """Picks the model and effort of an agent's next runs; None for auto."""
+        if agent not in ROLES or model not in (None, *MODEL_CHOICES) or effort not in (None, *EFFORTS):
+            raise ValueError(self._t("bad_choice"))
+        with self._lock:
+            choices = {role: dict(choice) for role, choice in self.choices.items()}
+            choices[agent] = {"model": model, "effort": effort}
+            if self._choices_file is not None:
+                # Saved first, so a choice that could not be kept is not shown as taken.
+                self._choices_file.write_text(json.dumps({"agents": choices}, indent=2), encoding="utf-8")
+            self.choices = choices
+        self._emit_state()
+
+    def _model(self, agent: str) -> str | None:
+        return self.choices[agent]["model"] or self.model
+
+    def _effort(self, agent: str) -> str | None:
+        return self.choices[agent]["effort"] or self.effort
 
     def subscribe(self) -> tuple[queue.Queue, list[dict]]:
         q: queue.Queue = queue.Queue()
@@ -540,8 +589,8 @@ class Office:
                 tools=IDEATOR_TOOLS,
                 system_prompt=IDEATOR_PROMPT,
                 json_schema=IdeasOutput.model_json_schema(),
-                model=self.model,
-                effort=self.effort,
+                model=self._model("ideator"),
+                effort=self._effort("ideator"),
                 resume=self._ideator_session,
                 plugin_dirs=self._plugin_dirs["ideator"],
             )
@@ -672,8 +721,8 @@ class Office:
             cwd=self.workspace,
             tools=self.worker_tools,
             append_system_prompt=WORKER_PROMPT,
-            model=self.model,
-            effort=self.effort,
+            model=self._model("worker"),
+            effort=self._effort("worker"),
             resume=self.session_id,
             accept_edits=True,
             plugin_dirs=self._plugin_dirs["worker"],
@@ -773,8 +822,8 @@ class Office:
                     verdict = review(
                         ctx,
                         backend="claude-code",
-                        model=self.model,
-                        effort=self.effort or config.get("effort") or DEFAULT_EFFORT,
+                        model=self._model("reviewer"),
+                        effort=self._effort("reviewer") or config.get("effort") or DEFAULT_EFFORT,
                         instructions=instructions,
                         cwd=self.workspace,
                         on_event=lambda e: self._on_agent_event("reviewer", e),

@@ -34,6 +34,10 @@ const STRINGS = {
       log_title: "LOG",
       log_empty: "All quiet. Give coderen a task.",
       now_title: "NOW",
+      model_title: "MODEL AND EFFORT",
+      model_label: "Model",
+      effort_label: "Effort",
+      choice_note: "Applies from the agent's next run and stays after a restart.",
       skills_title: "SKILLS",
       activity_title: "ACTIVITY",
       close: "Close",
@@ -86,6 +90,15 @@ const STRINGS = {
     limits_checking: "limits…",
     limits_none_title: "Click to check your subscription limits: one tiny request to Haiku",
     limit_title: (name, pct, when) => `${name}: ${pct}% used, resets ${when}. Click to check again.`,
+    models: {
+      haiku: "Haiku · fast and cheap",
+      sonnet: "Sonnet · balanced",
+      opus: "Opus · strong",
+      fable: "Fable · strongest, may need usage credits",
+    },
+    auto_from: (value) => `auto (${value})`,
+    auto_claude_code: "auto (Claude Code's default)",
+    auto_review_effort: "auto (the project's, else high)",
   },
   ru: {
     names: { worker: "coderen", reviewer: "checkren", ideator: "idearen", user: "Ты", office: "Офис" },
@@ -119,6 +132,10 @@ const STRINGS = {
       log_title: "ЖУРНАЛ",
       log_empty: "Пока тихо. Дай coderen задачу.",
       now_title: "СЕЙЧАС",
+      model_title: "МОДЕЛЬ И EFFORT",
+      model_label: "Модель",
+      effort_label: "Effort",
+      choice_note: "Действует со следующего запуска агента и сохраняется после перезапуска.",
       skills_title: "НАВЫКИ",
       activity_title: "ДЕЙСТВИЯ",
       close: "Закрыть",
@@ -171,6 +188,15 @@ const STRINGS = {
     limits_checking: "лимиты…",
     limits_none_title: "Нажми, чтобы проверить лимиты подписки: один крошечный запрос к Haiku",
     limit_title: (name, pct, when) => `${name}: использовано ${pct}%, сброс ${when}. Нажми, чтобы проверить снова.`,
+    models: {
+      haiku: "Haiku · быстрая и дешёвая",
+      sonnet: "Sonnet · золотая середина",
+      opus: "Opus · сильная",
+      fable: "Fable · самая сильная, может требовать кредиты",
+    },
+    auto_from: (value) => `авто (${value})`,
+    auto_claude_code: "авто (как в Claude Code)",
+    auto_review_effort: "авто (из проекта или high)",
   },
 };
 
@@ -564,6 +590,47 @@ function renderDrawer() {
       return li;
     }));
   }
+  renderChoices();
+}
+
+let choicesKey = "";
+
+// The agent's model and effort. Rebuilt only when they change, so an open list stays open.
+function renderChoices() {
+  const key = JSON.stringify([lang, drawerAgent, state.choices[drawerAgent], state.defaults]);
+  if (key === choicesKey) return;
+  choicesKey = key;
+  const t = S();
+  const choice = state.choices[drawerAgent];
+  const { model, effort } = state.defaults;
+  const autoEffort = drawerAgent === "reviewer" ? t.auto_review_effort : t.auto_claude_code;
+  fillSelect($("drawer-model"), model ? t.auto_from(model) : t.auto_claude_code,
+    state.model_choices.map((m) => [m, t.models[m] || m]), choice.model);
+  fillSelect($("drawer-effort"), effort ? t.auto_from(effort) : autoEffort,
+    state.effort_choices.map((e) => [e, e]), choice.effort);
+}
+
+function fillSelect(select, autoLabel, options, value) {
+  select.replaceChildren(...[["", autoLabel], ...options].map(([optionValue, label]) => {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = label;
+    return option;
+  }));
+  select.value = value || "";
+}
+
+async function sendChoice() {
+  const sent = await post("/api/choice", {
+    agent: drawerAgent,
+    model: $("drawer-model").value,
+    effort: $("drawer-effort").value,
+  });
+  if (!sent && drawerAgent) {
+    // Show what the server still has instead of the choice it refused.
+    choicesKey = "";
+    renderDrawer();
+  }
 }
 
 // The agent's own activity; rebuilt only when it gets a new entry, not on every state update.
@@ -704,6 +771,8 @@ document.querySelectorAll("[data-drawer]").forEach((button) => {
 });
 window.addEventListener("office:agent-click", (e) => openDrawer(e.detail.agent, $("scene")));
 $("drawer-close").addEventListener("click", closeDrawer);
+$("drawer-model").addEventListener("change", sendChoice);
+$("drawer-effort").addEventListener("change", sendChoice);
 $("drawer-backdrop").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeDrawer();
