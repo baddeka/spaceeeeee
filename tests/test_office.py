@@ -336,7 +336,7 @@ def request(url, method="GET", body=None, headers=None):
 def test_http_serves_page_and_state(server):
     base, _ = server
     status, html = request(base + "/")
-    assert status == 200 and "AI Office" in html
+    assert status == 200 and "Rens Office" in html
     status, body = request(base + "/static/app.js")
     assert status == 200
     status, body = request(base + "/api/state")

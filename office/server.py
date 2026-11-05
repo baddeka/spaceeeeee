@@ -222,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     bind_host = args.host.strip("[]")
     hosts = allowed_hosts(bind_host, args.allow_host)
     server = server_class(bind_host)((bind_host, args.port), make_handler(office, hosts))
-    print(f"AI office: {page_url(bind_host, server.server_port)}  (workspace: {workspace})")
+    print(f"Rens Office: {page_url(bind_host, server.server_port)}  (workspace: {workspace})")
     if bind_host not in LOOPBACK_NAMES:
         print("warning: listening beyond this machine; anyone who can reach it can run the worker", file=sys.stderr)
     # `kill` and a closed terminal must stop the agents too: in their own sessions, they never hear it.

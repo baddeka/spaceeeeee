@@ -1,13 +1,13 @@
-# AI Office + ai-review
+# Rens Office + ai-review
 
 [Русская версия](README.ru.md)
 
 Two tools built on Claude that run on a **Claude subscription (Pro or Max), with no API key**:
 
-- **AI Office** is a pixel-art web office with three agents: **idearen** proposes what to build on a topic you give, **coderen** writes the code, and **checkren** reviews it when you ask, or on its own with the autopilot, and sends it back for fixes.
+- **Rens Office** is a pixel-art web office with three agents: **idearen** proposes what to build on a topic you give, **coderen** writes the code, and **checkren** reviews it when you ask, or on its own with the autopilot, and sends it back for fixes.
 - **ai-review** is a command-line reviewer: it checks a diff, gives a verdict of APPROVED or CHANGES REQUESTED, and sets the exit code for CI.
 
-![AI Office by day: idearen, coderen and checkren at their desks, ideas on a topic, and the log](docs/office.png)
+![Rens Office by day: idearen, coderen and checkren at their desks, ideas on a topic, and the log](docs/office.png)
 
 ## Install
 
@@ -21,7 +21,7 @@ claude
 pip install -e ".[dev]"
 ```
 
-## AI Office
+## Rens Office
 
 ```bash
 ai-office --workspace ./my-project
@@ -60,7 +60,7 @@ An agent with nothing to do starts resting after a few seconds, each in its own 
 
 At night the agents with nothing to do fall asleep: their screens go dark and Zs float up. Whoever has work keeps going by the light of the monitor and the desk lamp.
 
-![AI Office at night: checkren reviews under the desk lamp while coderen sleeps](docs/night.png)
+![Rens Office at night: checkren reviews under the desk lamp while coderen sleeps](docs/night.png)
 
 ### Skills
 

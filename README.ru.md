@@ -1,13 +1,13 @@
-# AI Office + ai-review
+# Rens Office + ai-review
 
 [English version](README.md)
 
 Два инструмента на Claude, которые работают **через подписку Claude (Pro/Max), без API‑ключа**:
 
-- **AI Office** — пиксельный веб‑офис с тремя агентами. **idearen** предлагает, что сделать, по теме, которую ты задал. **coderen** пишет код. **checkren** проверяет его по кнопке или сам, в режиме автопилота, и отправляет работу на доработку.
+- **Rens Office** — пиксельный веб‑офис с тремя агентами. **idearen** предлагает, что сделать, по теме, которую ты задал. **coderen** пишет код. **checkren** проверяет его по кнопке или сам, в режиме автопилота, и отправляет работу на доработку.
 - **ai-review** — ревьюер для командной строки: проверяет diff, выносит вердикт APPROVED или CHANGES REQUESTED и возвращает код выхода для CI.
 
-![AI Office днём: idearen, coderen и checkren за столами, идеи по теме и журнал](docs/office.png)
+![Rens Office днём: idearen, coderen и checkren за столами, идеи по теме и журнал](docs/office.png)
 
 ## Установка
 
@@ -21,7 +21,7 @@ claude
 pip install -e ".[dev]"
 ```
 
-## AI Office
+## Rens Office
 
 ```bash
 ai-office --workspace ./my-project --lang ru
@@ -60,7 +60,7 @@ ai-office --workspace ./my-project --lang ru
 
 Ночью свободные агенты засыпают: экраны гаснут, над головами летят «Z». Тот, у кого есть работа, продолжает при свете монитора и настольной лампы.
 
-![AI Office ночью: checkren проверяет работу при свете лампы, coderen спит](docs/night.png)
+![Rens Office ночью: checkren проверяет работу при свете лампы, coderen спит](docs/night.png)
 
 ### Навыки
 

@@ -314,7 +314,7 @@ class Office:
 
     def _git(self, *args: str) -> str:
         # The office commits under its own name, so it works where no git identity is set up.
-        identity = ["-c", "user.name=AI Office", "-c", "user.email=office@localhost"]
+        identity = ["-c", "user.name=Rens Office", "-c", "user.email=office@localhost"]
         return context.run_git(self.workspace, *identity, *args).strip()
 
     def _ensure_repo(self) -> None:
@@ -329,7 +329,7 @@ class Office:
             missing = [pattern for pattern in LOCAL_EXCLUDES if pattern not in current]
             if missing:
                 with exclude.open("a") as f:
-                    f.write("\n# AI Office: caches are never worth reviewing\n" + "\n".join(missing) + "\n")
+                    f.write("\n# Rens Office: caches are never worth reviewing\n" + "\n".join(missing) + "\n")
 
     def _commit(self, message: str) -> str:
         self._git("add", "-A")

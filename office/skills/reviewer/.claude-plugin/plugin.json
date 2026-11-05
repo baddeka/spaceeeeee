@@ -1,5 +1,5 @@
 {
   "name": "reviewer-skills",
-  "description": "Skills for the AI Office reviewer: security review, test quality, edge cases, verifying fixes.",
+  "description": "Skills for the Rens Office reviewer: security review, test quality, edge cases, verifying fixes.",
   "version": "0.1.0"
 }
