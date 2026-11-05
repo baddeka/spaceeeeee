@@ -25,6 +25,8 @@ STATIC_TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascrip
 LOOPBACK_NAMES = {"localhost", "127.0.0.1", "::1"}
 WILDCARD_HOSTS = {"", "0.0.0.0", "::"}
 HEARTBEAT_SECONDS = 15
+# The largest request body: an uploaded file of 20 MB is about 27 MB once it is base64 in JSON.
+MAX_BODY_BYTES = 28 * 1024 * 1024
 # The model and effort picked for each agent on the page, kept between starts.
 CHOICES_FILE = Path.home() / ".rens-office.json"
 # A client that stops reading (a sleeping laptop, a phone with the page in the background) is
@@ -125,6 +127,9 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
                 return self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "expected JSON"})
             try:
                 length = int(self.headers.get("Content-Length") or 0)
+                if length > MAX_BODY_BYTES:
+                    self.close_connection = True  # the body stays unread, so the connection can't be reused
+                    return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request too large"})
                 body = json.loads(self.rfile.read(length) or b"{}") if length > 0 else {}
             except ValueError:  # a bad length or bad JSON
                 self.close_connection = True
@@ -133,12 +138,14 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "expected a JSON object"})
 
             actions = {
-                "/api/task": lambda: office.start_task(str(body.get("text", ""))),
+                "/api/task": lambda: office.start_task(str(body.get("text", "")), files=body.get("files")),
+                # Files come as base64 in JSON: like every other action, a cross-site page can't send it.
+                "/api/upload": lambda: {"name": office.save_upload(str(body.get("name", "")), body.get("data"))},
                 "/api/review": office.request_review,
                 "/api/rework": office.send_rework,
                 "/api/accept": office.accept,
                 "/api/stop": lambda: office.stop(str(body.get("agent", "worker"))),
-                "/api/ideas": lambda: office.generate_ideas(str(body.get("topic", ""))),
+                "/api/ideas": lambda: office.generate_ideas(str(body.get("topic", "")), files=body.get("files")),
                 "/api/handoff": lambda: office.hand_off(body.get("index")),
                 "/api/lang": lambda: office.set_language(str(body.get("lang", ""))),
                 "/api/limits": office.refresh_limits,
@@ -153,7 +160,7 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
             if action is None:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             try:
-                action()
+                result = action()
             except Busy as e:
                 return self._json(HTTPStatus.CONFLICT, {"error": str(e)})
             except (ValueError, ContextError) as e:
@@ -161,7 +168,8 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
             except Exception as e:  # the page should hear about it instead of losing the connection
                 print(f"ai-office: {self.path}: {e!r}", file=sys.stderr)
                 return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"server error: {e}"})
-            self._json(HTTPStatus.OK, office.snapshot())
+            # An action answers with what it made (an upload, its name), else with the new state.
+            self._json(HTTPStatus.OK, result if result is not None else office.snapshot())
 
         def _events(self):
             self.send_response(HTTPStatus.OK)

@@ -67,6 +67,19 @@ MESSAGES = {
         "cannot_stop": "Only coderen and idearen can be stopped",
         "limits_failed": "Could not read the subscription limits: {error}",
         "bad_choice": "Unknown agent, model or effort",
+        "bad_upload": "The file could not be read",
+        "upload_too_big": "The file is larger than {mb} MB",
+        "missing_upload": "An attached file is missing; attach it again",
+        "task_files": (
+            "The user attached these files to the task:\n{files}\n"
+            "Open each with the Read tool before you start; it shows images and PDFs too. They are not part "
+            "of the project and are never committed, so copy into the project only what it needs, such as an "
+            "image a page shows."
+        ),
+        "topic_files": (
+            "The user attached these files about the topic:\n{files}\n"
+            "Read them with the Read tool first and build the ideas on what they say."
+        ),
         "unknown_language": "Unknown language",
         "bad_rounds": "Rounds must be between 1 and 10",
         # prompts for the worker
@@ -165,6 +178,19 @@ MESSAGES = {
         "cannot_stop": "Остановить можно только coderen и idearen",
         "limits_failed": "Не получилось узнать лимиты подписки: {error}",
         "bad_choice": "Нет такого агента, модели или effort",
+        "bad_upload": "Не получилось прочитать файл",
+        "upload_too_big": "Файл больше {mb} МБ",
+        "missing_upload": "Приложенного файла нет, прикрепи его ещё раз",
+        "task_files": (
+            "К задаче приложены файлы:\n{files}\n"
+            "Перед началом открой каждый инструментом Read: он показывает и картинки, и PDF. Они не входят "
+            "в проект и не коммитятся, поэтому копируй в проект только то, что ему нужно, например картинку "
+            "для страницы."
+        ),
+        "topic_files": (
+            "К теме приложены файлы:\n{files}\n"
+            "Сначала прочитай их инструментом Read и строй идеи на том, что в них сказано."
+        ),
         "unknown_language": "Неизвестный язык",
         "bad_rounds": "Число раундов: от 1 до 10",
         "rework_approved": "checkren одобряет работу, но есть замечания. Пользователь просит их учесть.",

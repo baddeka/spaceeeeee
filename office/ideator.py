@@ -75,8 +75,8 @@ def parse_ideas(structured: dict | None) -> list[dict]:
     ]
 
 
-def idea_request(topic: str, reply_in: str) -> str:
-    return f"Topic: {topic}\n\nPropose 3 to 5 ideas on this topic. {reply_in}"
+def idea_request(topic: str, reply_in: str, files_note: str = "") -> str:
+    return f"Topic: {topic}{files_note}\n\nPropose 3 to 5 ideas on this topic. {reply_in}"
 
 
 def task_from_idea(idea: dict, topic: str, intro: str, guard: str) -> str:

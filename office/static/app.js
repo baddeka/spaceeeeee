@@ -25,6 +25,8 @@ const STRINGS = {
       task_label: "TASK FOR CODEREN",
       task_placeholder: "For example: build a Python CLI that counts words in a file, with tests",
       btn_task: "Give task",
+      btn_attach: "📎 Attach files",
+      files_hint: "or drop them here, or paste a screenshot",
       btn_review: "Call checkren",
       btn_rework: "Send back",
       btn_accept: "Accept",
@@ -99,6 +101,8 @@ const STRINGS = {
     auto_from: (value) => `auto (${value})`,
     auto_claude_code: "auto (Claude Code's default)",
     auto_review_effort: "auto (the project's, else high)",
+    remove_file: (name) => `Remove ${name}`,
+    file_too_big: (name) => `${name} is larger than 20 MB`,
   },
   ru: {
     names: { worker: "coderen", reviewer: "checkren", ideator: "idearen", user: "Ты", office: "Офис" },
@@ -123,6 +127,8 @@ const STRINGS = {
       task_label: "ЗАДАЧА ДЛЯ CODEREN",
       task_placeholder: "Например: сделай CLI на Python, который считает слова в файле, и напиши к нему тесты",
       btn_task: "Дать задачу",
+      btn_attach: "📎 Прикрепить файлы",
+      files_hint: "или перетащи их сюда, или вставь скриншот",
       btn_review: "Позвать checkren",
       btn_rework: "На доработку",
       btn_accept: "Принять",
@@ -197,6 +203,8 @@ const STRINGS = {
     auto_from: (value) => `авто (${value})`,
     auto_claude_code: "авто (как в Claude Code)",
     auto_review_effort: "авто (из проекта или high)",
+    remove_file: (name) => `Убрать ${name}`,
+    file_too_big: (name) => `${name} больше 20 МБ`,
   },
 };
 
@@ -723,7 +731,10 @@ $("task-form").addEventListener("submit", async (e) => {
     input.focus();
     return;
   }
-  if (await post("/api/task", { text: input.value })) input.value = "";
+  if (await post("/api/task", { text: input.value, files: attached.task })) {
+    input.value = "";
+    clearFiles("task");
+  }
 });
 $("task-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("task-form").requestSubmit();
@@ -734,7 +745,7 @@ $("btn-accept").addEventListener("click", () => post("/api/accept"));
 $("btn-stop").addEventListener("click", () => post("/api/stop", { agent: "worker" }));
 $("limits").addEventListener("click", () => post("/api/limits"));
 
-$("ideas-form").addEventListener("submit", (e) => {
+$("ideas-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const input = $("topic-input");
   if (!input.value.trim()) {
@@ -742,13 +753,117 @@ $("ideas-form").addEventListener("submit", (e) => {
     input.focus();
     return;
   }
-  post("/api/ideas", { topic: input.value });
+  if (await post("/api/ideas", { topic: input.value, files: attached.topic })) clearFiles("topic");
 });
 $("btn-ideas-stop").addEventListener("click", () => post("/api/stop", { agent: "ideator" }));
 $("idea-cards").addEventListener("click", (e) => {
   const button = e.target.closest(".idea-handoff");
   if (button && !button.disabled) post("/api/handoff", { index: Number(button.dataset.index) });
 });
+
+// ---------- files for the agents ----------
+
+// Files attached to the next task or topic. Each is uploaded at once; the task names them.
+const attached = { task: [], topic: [] };
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+
+function renderFiles(kind) {
+  $(`${kind}-files`).replaceChildren(...attached[kind].map((name, index) => {
+    const li = document.createElement("li");
+    li.className = "file-chip";
+    const label = document.createElement("span");
+    label.textContent = name;
+    label.title = name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "✕";
+    remove.setAttribute("aria-label", S().remove_file(name));
+    remove.addEventListener("click", () => {
+      attached[kind].splice(index, 1);
+      renderFiles(kind);
+    });
+    li.append(label, remove);
+    return li;
+  }));
+}
+
+function clearFiles(kind) {
+  attached[kind] = [];
+  renderFiles(kind);
+}
+
+async function attachFiles(kind, files) {
+  for (const file of files) {
+    if (file.size > MAX_FILE_BYTES) {
+      toast(S().file_too_big(file.name));
+      continue;
+    }
+    const name = await uploadFile(file);
+    if (name) {
+      attached[kind].push(name);
+      renderFiles(kind);
+    }
+  }
+}
+
+// JSON rather than a form upload: like every other request, a cross-site page can't send it.
+async function uploadFile(file) {
+  try {
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, data: await readBase64(file) }),
+    });
+    const data = await res.json();
+    if (res.ok) return data.name;
+    toast(data.error || S().error_status(res.status));
+  } catch {
+    toast(S().no_connection);
+  }
+  return null;
+}
+
+function readBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+for (const [kind, formId, inputId] of [["task", "task-form", "task-input"], ["topic", "ideas-form", "topic-input"]]) {
+  const picker = $(`${kind}-file-input`);
+  $(`${kind}-attach`).addEventListener("click", () => picker.click());
+  picker.addEventListener("change", () => {
+    attachFiles(kind, [...picker.files]);
+    picker.value = "";
+  });
+
+  const form = $(formId);
+  form.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    e.preventDefault();
+    form.classList.add("dropping");
+  });
+  form.addEventListener("dragleave", (e) => {
+    if (!form.contains(e.relatedTarget)) form.classList.remove("dropping");
+  });
+  form.addEventListener("drop", (e) => {
+    form.classList.remove("dropping");
+    if (!e.dataTransfer?.files.length) return;
+    e.preventDefault();
+    attachFiles(kind, [...e.dataTransfer.files]);
+  });
+
+  // A screenshot pasted into the text box comes as a file.
+  $(inputId).addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (!files.length) return;
+    e.preventDefault();
+    attachFiles(kind, files);
+  });
+}
 
 function sendAutopilot() {
   return post("/api/autopilot", {

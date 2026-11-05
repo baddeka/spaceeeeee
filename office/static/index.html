@@ -73,6 +73,12 @@
           <button type="submit" class="btn ideas-btn" id="btn-ideas" data-i18n="btn_ideas">Get ideas</button>
           <button type="button" class="btn ghost" id="btn-ideas-stop" data-i18n="btn_stop">Stop</button>
         </div>
+        <div class="files">
+          <button type="button" class="btn ghost attach" id="topic-attach" data-i18n="btn_attach">Attach files</button>
+          <input type="file" id="topic-file-input" multiple hidden>
+          <span class="files-hint" data-i18n="files_hint">or drop them here, or paste a screenshot</span>
+          <ul class="file-chips" id="topic-files"></ul>
+        </div>
         <p class="ideas-topic" id="ideas-topic"></p>
         <ol class="idea-cards" id="idea-cards"></ol>
       </form>
@@ -80,6 +86,12 @@
       <form class="panel task" id="task-form">
         <label for="task-input" data-i18n="task_label">TASK FOR THE DEVELOPER</label>
         <textarea id="task-input" rows="3" data-i18n-placeholder="task_placeholder"></textarea>
+        <div class="files">
+          <button type="button" class="btn ghost attach" id="task-attach" data-i18n="btn_attach">Attach files</button>
+          <input type="file" id="task-file-input" multiple hidden>
+          <span class="files-hint" data-i18n="files_hint">or drop them here, or paste a screenshot</span>
+          <ul class="file-chips" id="task-files"></ul>
+        </div>
         <div class="actions">
           <button type="submit" class="btn primary" id="btn-task" data-i18n="btn_task">Give task</button>
           <button type="button" class="btn review" id="btn-review" data-i18n="btn_review">Call reviewer</button>

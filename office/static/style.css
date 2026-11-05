@@ -662,6 +662,21 @@ body.drawer-open { overflow: hidden; }
   overflow-wrap: anywhere;
 }
 
+/* files attached to a task or a topic */
+.files { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+.files-hint { font-size: 17px; color: var(--muted); }
+.file-chips { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin: 0; padding: 0; list-style: none; }
+.file-chips:empty { display: none; }
+.file-chip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  padding: 2px 4px 2px 8px; border: 2px solid var(--ink); background: var(--panel-2);
+  font: 18px/1.2 var(--mono-font);
+}
+.file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-chip button { padding: 0 4px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.file-chip button:hover { color: var(--bad); }
+form.dropping { outline: 3px dashed var(--focus); outline-offset: -6px; }
+
 .choice-row { display: flex; flex-wrap: wrap; gap: 10px 16px; }
 .choice { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 18px; color: var(--muted); }
 .choice-note { margin: 8px 0 0; font-size: 17px; color: var(--muted); }

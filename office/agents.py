@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import itertools
 import json
+import os
 import queue
+import re
 import threading
 import time
 from collections import deque
@@ -60,8 +65,16 @@ REVIEWER_SKILLS_HINT = (
 # local exclude file, which is not part of the project.
 LOCAL_EXCLUDES = [
     "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/",
-    "node_modules/", ".venv/", "venv/", ".DS_Store",
+    "node_modules/", ".venv/", "venv/", ".DS_Store", ".rens-office/",
 ]
+
+# Files the user hands the agents live here in the workspace, outside the project: excluded above,
+# so never committed or reviewed. The agents get their paths, and the developer copies in what the
+# project needs.
+UPLOADS_DIR = Path(".rens-office") / "uploads"
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+# Names Windows will not create, whatever the extension.
+WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{n}" for n in range(1, 10)), *(f"LPT{n}" for n in range(1, 10))}
 
 REVIEW_LANGUAGE = "Write the summary and every issue's title, explanation and suggestion in {language}."
 
@@ -421,10 +434,11 @@ class Office:
             self._threads = [t for t in self._threads if t.is_alive()] + [thread]
         thread.start()
 
-    def start_task(self, text: str, title: str | None = None, from_idea: bool = False) -> None:
+    def start_task(self, text: str, title: str | None = None, from_idea: bool = False, files=None) -> None:
         text = text.strip()
         if not text:
             raise ValueError(self._t("empty_task"))
+        attachments = self._attachments(files)
         with self._lock:
             self._busy_check()
             if self.baseline is None:
@@ -438,11 +452,11 @@ class Office:
             self.agents["worker"]["status"] = "working"
             self._phrase("worker", "reading_task")
             self._phrase("reviewer", "reviewer_waiting")
-            run = self._prepare_worker(text)
+            run = self._prepare_worker(text + self._files_note("task_files", attachments))
         if from_idea:
             self._log_entry("ideator", "handoff", self._t("log_idea_handoff", title=self.task_title))
         else:
-            self._log_entry("user", "task", text)
+            self._log_entry("user", "task", text + _file_names(attachments))
         self._emit_state()
         self._start(self._work, run)
 
@@ -581,10 +595,11 @@ class Office:
         if closed:
             kill_tree(proc, force=True)
 
-    def generate_ideas(self, topic: str) -> None:
+    def generate_ideas(self, topic: str, files=None) -> None:
         topic = topic.strip()
         if not topic:
             raise ValueError(self._t("empty_topic"))
+        attachments = self._attachments(files)
         with self._lock:
             # The idea maker only reads, so it may think while the others work.
             if self.agents["ideator"]["status"] == "thinking":
@@ -593,7 +608,7 @@ class Office:
             self._phrase("ideator", "ideator_thinking", topic=_shorten(topic, 40))
             run = self._ideator_run = ClaudeCodeRun(
                 # Like the worker's, every message of the resumed conversation names the language.
-                idea_request(topic, self._t("reply_in")),
+                idea_request(topic, self._t("reply_in"), self._files_note("topic_files", attachments)),
                 cwd=self.workspace,
                 tools=IDEATOR_TOOLS,
                 system_prompt=IDEATOR_PROMPT,
@@ -605,9 +620,46 @@ class Office:
             )
             if self._closed:
                 run.stop()
-        self._log_entry("user", "topic", self._t("log_topic", topic=topic))
+        self._log_entry("user", "topic", self._t("log_topic", topic=topic) + _file_names(attachments))
         self._emit_state()
         self._start(self._ideate, run, topic)
+
+    def save_upload(self, name: str, data) -> str:
+        """Keeps a file the user hands the agents, sent as base64; returns its name in the uploads folder."""
+        try:
+            content = base64.b64decode(data, validate=True)
+        except (binascii.Error, TypeError, ValueError):
+            raise ValueError(self._t("bad_upload")) from None
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise ValueError(self._t("upload_too_big", mb=MAX_UPLOAD_BYTES // 2**20))
+        folder = self.workspace / UPLOADS_DIR
+        folder.mkdir(parents=True, exist_ok=True)
+        stem, suffix = os.path.splitext(safe_file_name(name))
+        for n in itertools.count(1):
+            target = folder / (f"{stem}{suffix}" if n == 1 else f"{stem} ({n}){suffix}")
+            try:
+                with target.open("xb") as f:  # never replaces a file, not even with two uploads at once
+                    f.write(content)
+            except FileExistsError:
+                continue
+            return target.name
+
+    def _attachments(self, files) -> list[Path]:
+        """The uploaded files a task or a topic names, each checked to be in the uploads folder."""
+        if not files:
+            return []
+        folder = self.workspace / UPLOADS_DIR
+        if not isinstance(files, list) or not all(
+            isinstance(name, str) and safe_file_name(name) == name and (folder / name).is_file() for name in files
+        ):
+            raise ValueError(self._t("missing_upload"))
+        return [folder / name for name in files]
+
+    def _files_note(self, key: str, files: list[Path]) -> str:
+        """Where the attached files are, for the agent's prompt; Claude Code's Read wants full paths."""
+        if not files:
+            return ""
+        return "\n\n" + self._t(key, files="\n".join(f"- {path}" for path in files))
 
     def hand_off(self, index) -> None:
         """Gives one of the ideas to the developer as its next task."""
@@ -900,6 +952,21 @@ class Office:
             if not alive:
                 return
             alive[0].join(max(0.0, deadline - time.monotonic()))
+
+
+def safe_file_name(name: str) -> str:
+    """`name` as a plain file name: no folders, nothing Windows refuses, not too long."""
+    base = re.split(r"[\\/]", name)[-1]
+    base = re.sub(r'[<>:"|?*\x00-\x1f]', "_", base).strip(" ").rstrip(".")
+    stem, suffix = os.path.splitext(base)
+    if stem.upper() in WINDOWS_RESERVED:
+        stem = f"_{stem}"
+    return stem[:100] + suffix[:20] or "file"
+
+
+def _file_names(files: list[Path]) -> str:
+    """The attached files, as a line under the task or topic in the log."""
+    return "\n📎 " + ", ".join(path.name for path in files) if files else ""
 
 
 def limit_windows(info) -> list[dict]:
