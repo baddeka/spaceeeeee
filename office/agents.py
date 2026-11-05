@@ -70,6 +70,9 @@ FAST_FAIL_OUTPUT_CHARS = 2500
 DEFAULT_ROUNDS = 3
 MAX_ROUNDS = 10
 
+# The name the office commits under where git has no user name and email set up.
+OFFICE_GIT_IDENTITY = ["-c", "user.name=Rens Office", "-c", "user.email=office@localhost"]
+
 # Claude Code's aliases for the newest model of each kind, cheapest first; the page offers these.
 MODEL_CHOICES = ("haiku", "sonnet", "opus", "fable")
 
@@ -374,9 +377,7 @@ class Office:
     # ----- git -----
 
     def _git(self, *args: str) -> str:
-        # The office commits under its own name, so it works where no git identity is set up.
-        identity = ["-c", "user.name=Rens Office", "-c", "user.email=office@localhost"]
-        return context.run_git(self.workspace, *identity, *args).strip()
+        return context.run_git(self.workspace, *args).strip()
 
     def _ensure_repo(self) -> None:
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -394,8 +395,16 @@ class Office:
 
     def _commit(self, message: str) -> str:
         self._git("add", "-A")
-        self._git("commit", "-q", "--allow-empty", "-m", message)
+        self._git(*self._identity(), "commit", "-q", "--allow-empty", "-m", message)
         return self._git("rev-parse", "HEAD")
+
+    def _identity(self) -> list[str]:
+        """Commits go out under the user's git name, so GitHub credits them; else under the office's."""
+        try:
+            name, email = self._git("config", "user.name"), self._git("config", "user.email")
+        except context.ContextError:  # git exits with 1 for a setting that is not there
+            return OFFICE_GIT_IDENTITY
+        return [] if name and email else OFFICE_GIT_IDENTITY
 
     # ----- actions -----
 

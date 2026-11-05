@@ -103,7 +103,7 @@ A project is the `--workspace` folder. Everything coderen makes stays there afte
 
 Accept the work before you stop the office. The first task after a start commits everything in the folder as `office: before task`, so changes you had not accepted would no longer count as the change checkren reviews.
 
-To work on an existing repository, such as your team's, point `--workspace` at your clone and switch to a branch of your own first. The office commits on the current branch, as "Rens Office", and never pushes. Keep secrets such as `.env` in `.gitignore`: the office commits every file git does not ignore.
+To work on an existing repository, such as your team's, point `--workspace` at your clone and switch to a branch of your own first. The office commits on the current branch under your git name (`user.name` and `user.email` in git's settings), or as "Rens Office" when git has none, and never pushes. Keep secrets such as `.env` in `.gitignore`: the office commits every file git does not ignore.
 
 ### Options
 
