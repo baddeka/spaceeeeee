@@ -83,8 +83,9 @@ const STRINGS = {
     handed: "With coderen",
     limits: { five_hour: "5h", seven_day: "week", seven_day_opus: "week · Opus", seven_day_sonnet: "week · Sonnet" },
     limits_none: "limits —",
-    limits_none_title: "Your subscription limits show up after the first agent run",
-    limit_title: (name, pct, when) => `${name}: ${pct}% used, resets ${when}`,
+    limits_checking: "limits…",
+    limits_none_title: "Click to check your subscription limits: one tiny request to Haiku",
+    limit_title: (name, pct, when) => `${name}: ${pct}% used, resets ${when}. Click to check again.`,
   },
   ru: {
     names: { worker: "coderen", reviewer: "checkren", ideator: "idearen", user: "Ты", office: "Офис" },
@@ -167,8 +168,9 @@ const STRINGS = {
     handed: "У coderen",
     limits: { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя · Opus", seven_day_sonnet: "неделя · Sonnet" },
     limits_none: "лимиты —",
-    limits_none_title: "Лимиты подписки появятся после первого запуска агента",
-    limit_title: (name, pct, when) => `${name}: использовано ${pct}%, сброс ${when}`,
+    limits_checking: "лимиты…",
+    limits_none_title: "Нажми, чтобы проверить лимиты подписки: один крошечный запрос к Haiku",
+    limit_title: (name, pct, when) => `${name}: использовано ${pct}%, сброс ${when}. Нажми, чтобы проверить снова.`,
   },
 };
 
@@ -258,7 +260,7 @@ function render(s) {
   $("workspace").textContent = s.workspace;
   $("workspace").title = s.workspace;
   $("cost").textContent = formatCost(s.cost_usd);
-  renderLimits(s.limits);
+  renderLimits(s.limits, s.limits_checking);
 
   for (const agent of ["worker", "reviewer", "ideator"]) {
     const a = s.agents[agent];
@@ -299,12 +301,13 @@ function render(s) {
   window.OfficeScene?.setState(s);
 }
 
-// The subscription's usage, as the agents' runs report it: a small bar per limit window.
-function renderLimits(limits) {
+// The subscription's usage, as Claude Code reports it: a small bar per limit window.
+function renderLimits(limits, checking) {
   const t = S();
   const box = $("limits");
+  box.setAttribute("aria-busy", String(Boolean(checking)));
   if (!limits?.length) {
-    box.textContent = t.limits_none;
+    box.textContent = checking ? t.limits_checking : t.limits_none;
     box.title = t.limits_none_title;
     return;
   }
@@ -662,6 +665,7 @@ $("btn-review").addEventListener("click", () => post("/api/review"));
 $("btn-rework").addEventListener("click", () => post("/api/rework"));
 $("btn-accept").addEventListener("click", () => post("/api/accept"));
 $("btn-stop").addEventListener("click", () => post("/api/stop", { agent: "worker" }));
+$("limits").addEventListener("click", () => post("/api/limits"));
 
 $("ideas-form").addEventListener("submit", (e) => {
   e.preventDefault();

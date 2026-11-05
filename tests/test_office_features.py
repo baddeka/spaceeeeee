@@ -5,9 +5,10 @@ import json
 import pytest
 
 from office.agents import SKILLS_DIR, Office, limit_windows, load_skills
-from reviewer import llm
+from reviewer import claude_code, llm
 from reviewer.context import FileSnapshot, ReviewContext, collect_diff
 
+from .conftest import wait_for_file
 from .test_office import fake_claude, request, server  # noqa: F401 (fixtures)
 
 MAJOR = json.dumps({"summary": "bad", "issues": [{
@@ -426,3 +427,55 @@ def test_agent_runs_report_the_subscription_limits(fake_claude, tmp_path, monkey
     limits = office.snapshot()["limits"]
     assert [w["name"] for w in limits] == ["five_hour", "seven_day"]
     assert limits[1]["used"] == 0.28
+
+
+def test_the_limits_check_is_one_tiny_request(fake_claude, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_RATE_LIMIT", json.dumps(RATE_LIMIT_INFO))
+    office = Office(tmp_path / "ws")
+
+    office.refresh_limits()
+    office.wait_idle()
+
+    snapshot = office.snapshot()
+    assert [w["name"] for w in snapshot["limits"]] == ["five_hour", "seven_day"]
+    assert snapshot["limits_checking"] is False
+    (call,) = fake_claude()
+    assert arg(call, "--model") == "haiku"
+    assert arg(call, "--tools") == ""
+    assert "--no-session-persistence" in call["args"]
+    assert not (tmp_path / "ws" / "app.py").exists()
+
+
+def test_a_failed_limits_check_only_leaves_them_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_code, "CLAUDE_BIN", str(tmp_path / "no-such-claude"))
+    office = Office(tmp_path / "ws")
+
+    office.refresh_limits()
+    office.wait_idle()
+
+    snapshot = office.snapshot()
+    assert snapshot["limits"] is None and snapshot["limits_checking"] is False
+    assert "Could not read the subscription limits" in office._log[-1]["text"]
+
+
+def test_one_limits_check_at_a_time(fake_claude, tmp_path, monkeypatch):
+    pid_file = tmp_path / "child.pid"
+    monkeypatch.setenv("FAKE_CLAUDE_HANG", str(pid_file))
+    office = Office(tmp_path / "ws")
+
+    office.refresh_limits()
+    wait_for_file(pid_file)
+    office.refresh_limits()
+
+    assert len(fake_claude()) == 1
+    assert office.snapshot()["limits_checking"] is True
+    office.shutdown()
+
+
+def test_http_limits_check(server, fake_claude):  # noqa: F811
+    base, office = server
+    status, _ = request(base + "/api/limits", "POST", {}, {"Content-Type": "application/json"})
+    office.wait_idle()
+
+    assert status == 200
+    assert arg(fake_claude()[0], "--model") == "haiku"

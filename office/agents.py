@@ -71,6 +71,10 @@ MAX_ROUNDS = 10
 
 # Subscription limit windows as Claude Code names them, in the order the page shows them.
 LIMIT_WINDOWS = ("five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet")
+# The cheapest request after which Claude Code reports the limits: no tools, a one-line prompt and
+# the smallest model, about 1,500 tokens.
+LIMITS_CHECK_PROMPT = "Reply with one dot."
+LIMITS_CHECK_MODEL = "haiku"
 
 
 class Busy(Exception):
@@ -200,6 +204,7 @@ class Office:
         # The reviewer's run and the check being run, so shutdown() can end them too.
         self._review_run: ClaudeCodeRun | None = None
         self._check_proc = None
+        self._limits_run: ClaudeCodeRun | None = None
         # Set by shutdown(): any run that starts afterwards is stopped at once.
         self._closed = False
         self._threads: list[threading.Thread] = []
@@ -242,6 +247,7 @@ class Office:
                 "workspace": str(self.workspace),
                 "cost_usd": round(self.cost_usd, 4),
                 "limits": [dict(window) for window in self.limits] if self.limits else None,
+                "limits_checking": self._limits_run is not None,
                 "topic": self.topic,
                 "ideas": [dict(idea) for idea in self.ideas] if self.ideas else None,
                 "lang": self.lang,
@@ -451,7 +457,9 @@ class Office:
         """
         with self._lock:
             self._closed = True
-            runs = [r for r in (self._worker_run, self._ideator_run, self._review_run) if r is not None]
+            runs = [
+                r for r in (self._worker_run, self._ideator_run, self._review_run, self._limits_run) if r is not None
+            ]
             check = self._check_proc
         for run in runs:
             run.stop()
@@ -461,6 +469,46 @@ class Office:
         self.wait_idle(grace)
         for run in runs:
             run.kill()
+
+    def refresh_limits(self) -> None:
+        """Reads the subscription's limits with one tiny request, unless a check is under way."""
+        with self._lock:
+            if self._limits_run is not None or self._closed:
+                return
+            run = self._limits_run = ClaudeCodeRun(
+                ".",
+                cwd=self.workspace,
+                tools=[],
+                system_prompt=LIMITS_CHECK_PROMPT,
+                model=LIMITS_CHECK_MODEL,
+                persist_session=False,
+            )
+        self._emit_state()
+        self._start(self._check_limits, run)
+
+    def _check_limits(self, run: ClaudeCodeRun) -> None:
+        try:
+            run.run(self._on_limits_check_event)
+        except ClaudeCodeStopped:
+            pass
+        except Exception as e:
+            # The limits are a convenience: a failed check only leaves them unknown.
+            self._log_entry("office", "error", self._t("limits_failed", error=str(e)))
+        finally:
+            with self._lock:
+                self._limits_run = None
+            self._emit_state()
+
+    def _on_limits_check_event(self, event: dict) -> None:
+        if event.get("type") == "rate_limit_event":
+            self._update_limits(event.get("rate_limit_info"))
+
+    def _update_limits(self, info) -> None:
+        windows = limit_windows(info)
+        if windows:
+            with self._lock:
+                self.limits = windows
+            self._emit_state()
 
     def _track_review(self, run: ClaudeCodeRun) -> None:
         with self._lock:
@@ -767,11 +815,7 @@ class Office:
                 self.session_id = event.get("session_id") or self.session_id
             return
         if event.get("type") == "rate_limit_event":
-            windows = limit_windows(event.get("rate_limit_info"))
-            if windows:
-                with self._lock:
-                    self.limits = windows
-                self._emit_state()
+            self._update_limits(event.get("rate_limit_info"))
             return
         if event.get("type") != "assistant":
             return

@@ -80,6 +80,8 @@ elif schema:
         {"type": "tool_use", "name": "Read", "input": {"file_path": "app.py"}},
     ]}})
     result(json.dumps(review), review)
+elif args[args.index("--tools") + 1] == "":
+    result(".", cost=0.0003)  # a run without tools only answers, like the limits check
 else:
     if skill := os.environ.get("FAKE_CLAUDE_SKILL"):
         emit({"type": "assistant", "message": {"content": [

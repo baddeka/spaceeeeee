@@ -139,6 +139,7 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
                 "/api/ideas": lambda: office.generate_ideas(str(body.get("topic", ""))),
                 "/api/handoff": lambda: office.hand_off(body.get("index")),
                 "/api/lang": lambda: office.set_language(str(body.get("lang", ""))),
+                "/api/limits": office.refresh_limits,
                 "/api/autopilot": lambda: office.set_autopilot(
                     body.get("enabled") is True, body.get("max_rounds")
                 ),
@@ -229,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("SIGTERM", "SIGHUP"):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), _stop_serving)
+    # The header shows the subscription's limits from the start, not only after the first task.
+    office.refresh_limits()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
