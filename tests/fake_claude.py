@@ -4,8 +4,9 @@
 Reads FAKE_CLAUDE_LOG (where to append the received args), FAKE_CLAUDE_REVIEW (the review to
 return when called with the review schema), FAKE_CLAUDE_IDEAS (the ideas to return when called
 with the ideas schema), FAKE_CLAUDE_SKILL (a skill the worker loads), FAKE_CLAUDE_FAIL,
-FAKE_CLAUDE_NOISE (bytes of stderr to write first) and FAKE_CLAUDE_HANG (a file to write the pid
-of a child process to before waiting forever, like a worker running a server).
+FAKE_CLAUDE_NOISE (bytes of stderr to write first), FAKE_CLAUDE_HANG (a file to write the pid
+of a child process to before waiting forever, like a worker running a server) and
+FAKE_CLAUDE_RATE_LIMIT (the rate_limit_info of a rate_limit_event to report).
 """
 
 import json
@@ -53,6 +54,8 @@ if noise := os.environ.get("FAKE_CLAUDE_NOISE"):
     sys.stderr.write("w" * int(noise))  # more than a pipe holds, so nobody reading it would hang us
     sys.stderr.flush()
 emit({"type": "system", "subtype": "init", "session_id": session})
+if limits := os.environ.get("FAKE_CLAUDE_RATE_LIMIT"):
+    emit({"type": "rate_limit_event", "rate_limit_info": json.loads(limits)})
 
 if hang := os.environ.get("FAKE_CLAUDE_HANG"):
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from office.agents import SKILLS_DIR, Office, load_skills
+from office.agents import SKILLS_DIR, Office, limit_windows, load_skills
 from reviewer import llm
 from reviewer.context import FileSnapshot, ReviewContext, collect_diff
 
@@ -391,3 +391,38 @@ def test_turning_autopilot_on_hands_over_waiting_ideas(fake_claude, tmp_path):
     office.wait_idle()
 
     assert office.task_title == "Focus timer page"
+
+
+# What Claude Code 2.1 reports for a subscription, trimmed: the windows are what the page shows.
+RATE_LIMIT_INFO = {
+    "status": "allowed",
+    "resetsAt": 1793865600,
+    "isUsingOverage": False,
+    "unifiedWindows": {
+        "seven_day": {"utilization": 0.28, "resetsAt": 1793937600, "status": "allowed"},
+        "five_hour": {"utilization": 0.05, "resetsAt": 1793870400, "status": "allowed"},
+    },
+}
+
+
+def test_limit_windows_come_shortest_first():
+    assert limit_windows(RATE_LIMIT_INFO) == [
+        {"name": "five_hour", "used": 0.05, "resets_at": 1793870400, "status": "allowed"},
+        {"name": "seven_day", "used": 0.28, "resets_at": 1793937600, "status": "allowed"},
+    ]
+    assert limit_windows({"status": "allowed"}) == []
+    assert limit_windows({"unifiedWindows": {"five_hour": {"status": "allowed"}}}) == []
+    assert limit_windows(None) == limit_windows(["odd"]) == []
+
+
+def test_agent_runs_report_the_subscription_limits(fake_claude, tmp_path, monkeypatch):
+    office = Office(tmp_path / "ws")
+    assert office.snapshot()["limits"] is None
+    monkeypatch.setenv("FAKE_CLAUDE_RATE_LIMIT", json.dumps(RATE_LIMIT_INFO))
+
+    office.start_task("x")
+    office.wait_idle()
+
+    limits = office.snapshot()["limits"]
+    assert [w["name"] for w in limits] == ["five_hour", "seven_day"]
+    assert limits[1]["used"] == 0.28

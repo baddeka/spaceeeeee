@@ -143,6 +143,14 @@ h2 { font-size: 18px; }
 .conn[data-state="online"]::before { background: var(--ok); }
 .conn[data-state="offline"]::before { background: var(--bad); }
 
+/* subscription limits: a pixel bar per window, green, then orange from 70%, red from 90% */
+.limits { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.limit { display: inline-flex; align-items: center; gap: 6px; color: var(--text); }
+.limit .bar { width: 40px; height: 10px; border: 2px solid var(--ink); background: var(--panel-2); }
+.limit .bar span { display: block; height: 100%; background: var(--ok); }
+.limit[data-level="warn"] .bar span { background: var(--warn); }
+.limit[data-level="high"] .bar span { background: var(--bad); }
+
 /* ---------- layout ---------- */
 
 .layout {
@@ -693,7 +701,8 @@ body.drawer-open { overflow: hidden; }
   /* the switches get their own row under the logo */
   .topbar { flex-wrap: wrap; row-gap: 10px; }
   .brand { flex: 1 1 100%; }
-  .meta { flex: 1 1 100%; gap: 8px; }
+  .meta { flex: 1 1 100%; gap: 8px; flex-wrap: wrap; }
+  .meta .limits { flex: 1 1 100%; }
   .meta .conn { font-size: 0; }
   .actions .btn { flex: 1 1 auto; }
 

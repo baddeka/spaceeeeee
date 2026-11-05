@@ -13,6 +13,7 @@ const STRINGS = {
     static: {
       connecting: "connecting…",
       cost_title: "Cost estimated by Claude Code; with a subscription it uses your limits, not money",
+      limits_label: "Subscription limits",
       scene_label: "Pixel office: coderen, checkren and idearen at their desks. Click an agent to see its skills.",
       worker_plate: "coderen",
       reviewer_plate: "checkren",
@@ -80,6 +81,10 @@ const STRINGS = {
     brief: "Brief for coderen",
     hand_off: "Give to coderen",
     handed: "With coderen",
+    limits: { five_hour: "5h", seven_day: "week", seven_day_opus: "week · Opus", seven_day_sonnet: "week · Sonnet" },
+    limits_none: "limits —",
+    limits_none_title: "Your subscription limits show up after the first agent run",
+    limit_title: (name, pct, when) => `${name}: ${pct}% used, resets ${when}`,
   },
   ru: {
     names: { worker: "coderen", reviewer: "checkren", ideator: "idearen", user: "Ты", office: "Офис" },
@@ -92,6 +97,7 @@ const STRINGS = {
     static: {
       connecting: "подключаюсь…",
       cost_title: "Стоимость по оценке Claude Code; с подпиской списываются лимиты, а не деньги",
+      limits_label: "Лимиты подписки",
       scene_label: "Пиксельный офис: coderen, checkren и idearen за своими столами. Нажми на агента, чтобы увидеть его навыки.",
       worker_plate: "coderen",
       reviewer_plate: "checkren",
@@ -159,6 +165,10 @@ const STRINGS = {
     brief: "ТЗ для coderen",
     hand_off: "Передать coderen",
     handed: "У coderen",
+    limits: { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя · Opus", seven_day_sonnet: "неделя · Sonnet" },
+    limits_none: "лимиты —",
+    limits_none_title: "Лимиты подписки появятся после первого запуска агента",
+    limit_title: (name, pct, when) => `${name}: использовано ${pct}%, сброс ${when}`,
   },
 };
 
@@ -248,6 +258,7 @@ function render(s) {
   $("workspace").textContent = s.workspace;
   $("workspace").title = s.workspace;
   $("cost").textContent = formatCost(s.cost_usd);
+  renderLimits(s.limits);
 
   for (const agent of ["worker", "reviewer", "ideator"]) {
     const a = s.agents[agent];
@@ -286,6 +297,40 @@ function render(s) {
   renderVerdict(s.verdict);
   if (drawerAgent) renderDrawer();
   window.OfficeScene?.setState(s);
+}
+
+// The subscription's usage, as the agents' runs report it: a small bar per limit window.
+function renderLimits(limits) {
+  const t = S();
+  const box = $("limits");
+  if (!limits?.length) {
+    box.textContent = t.limits_none;
+    box.title = t.limits_none_title;
+    return;
+  }
+  box.title = "";
+  box.replaceChildren(...limits.map((w) => {
+    const pct = Math.round(w.used * 100);
+    const name = t.limits[w.name] || w.name;
+    const item = document.createElement("span");
+    item.className = "limit";
+    item.dataset.level = w.status === "rejected" || pct >= 90 ? "high" : w.status === "allowed_warning" || pct >= 70 ? "warn" : "ok";
+    const when = w.resets_at
+      ? new Date(w.resets_at * 1000).toLocaleString(lang, { weekday: "short", hour: "2-digit", minute: "2-digit" })
+      : "—";
+    item.title = t.limit_title(name, pct, when);
+    const label = document.createElement("span");
+    label.textContent = name;
+    const bar = document.createElement("span");
+    bar.className = "bar";
+    const fill = document.createElement("span");
+    fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    bar.append(fill);
+    const value = document.createElement("span");
+    value.textContent = `${pct}%`;
+    item.append(label, bar, value);
+    return item;
+  }));
 }
 
 function renderAutopilot(pilot) {

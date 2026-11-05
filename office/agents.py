@@ -69,6 +69,9 @@ FAST_FAIL_OUTPUT_CHARS = 2500
 DEFAULT_ROUNDS = 3
 MAX_ROUNDS = 10
 
+# Subscription limit windows as Claude Code names them, in the order the page shows them.
+LIMIT_WINDOWS = ("five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet")
+
 
 class Busy(Exception):
     pass
@@ -220,6 +223,8 @@ class Office:
         self.topic: str | None = None
         self.ideas: list[dict] | None = None
         self.cost_usd = 0.0
+        # The subscription's usage limits, from the last rate_limit_event any agent's run reported.
+        self.limits: list[dict] | None = None
         # halted: why the current autopilot run ended ("approved", "limit", "error", "stopped").
         self.autopilot = {"enabled": False, "max_rounds": DEFAULT_ROUNDS, "round": 0, "halted": None}
 
@@ -236,6 +241,7 @@ class Office:
                 "verdict": dict(self.verdict) if self.verdict else None,
                 "workspace": str(self.workspace),
                 "cost_usd": round(self.cost_usd, 4),
+                "limits": [dict(window) for window in self.limits] if self.limits else None,
                 "topic": self.topic,
                 "ideas": [dict(idea) for idea in self.ideas] if self.ideas else None,
                 "lang": self.lang,
@@ -760,6 +766,13 @@ class Office:
             with self._lock:
                 self.session_id = event.get("session_id") or self.session_id
             return
+        if event.get("type") == "rate_limit_event":
+            windows = limit_windows(event.get("rate_limit_info"))
+            if windows:
+                with self._lock:
+                    self.limits = windows
+                self._emit_state()
+            return
         if event.get("type") != "assistant":
             return
         for block in event.get("message", {}).get("content", []):
@@ -785,6 +798,24 @@ class Office:
             if not alive:
                 return
             alive[0].join(max(0.0, deadline - time.monotonic()))
+
+
+def limit_windows(info) -> list[dict]:
+    """The usage limit windows in a Claude Code rate_limit_event: how much is used and when it resets.
+
+    `used` is a share of the window (0.28 is 28%), `resets_at` a Unix time. Anything unexpected
+    gives no windows: the gauge must never stop an agent's run.
+    """
+    windows = info.get("unifiedWindows") if isinstance(info, dict) else None
+    if not isinstance(windows, dict):
+        return []
+    result = [
+        {"name": name, "used": window["utilization"], "resets_at": window.get("resetsAt"), "status": window.get("status")}
+        for name, window in windows.items()
+        if isinstance(window, dict) and isinstance(window.get("utilization"), (int, float))
+    ]
+    order = {name: n for n, name in enumerate(LIMIT_WINDOWS)}
+    return sorted(result, key=lambda window: order.get(window["name"], len(order)))
 
 
 def verdict_to_dict(verdict: Verdict, ctx: context.ReviewContext) -> dict:
