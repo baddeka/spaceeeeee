@@ -12,6 +12,7 @@ import pytest
 
 from office import server as office_server
 from office.agents import Busy, Office, _shorten, describe_tool, rework_prompt
+from office.projects import Projects
 from office.server import allowed_hosts, make_handler, page_url
 from reviewer import claude_code, llm
 from reviewer.claude_code import ClaudeCodeRun
@@ -41,6 +42,13 @@ def fake_claude(tmp_path, monkeypatch):
 
 def make_office(tmp_path):
     return Office(tmp_path / "ws", lang="ru")
+
+
+def projects_with(office, tmp_path):
+    """A project list with `office` already open, for the HTTP tests."""
+    projects = Projects(tmp_path / "projects", lambda folder, lang: Office(folder, lang=lang), lang=office.lang)
+    projects.office = office
+    return projects
 
 
 def test_claude_code_run_streams_events_and_returns_result(fake_claude, tmp_path):
@@ -288,7 +296,7 @@ def test_rework_allowed_for_approved_verdict_with_minor_issues(fake_claude, tmp_
     office = make_office(tmp_path)
     office.start_task("x")
     office.wait_idle()
-    office.verdict = {"approved": True, "reasons": [], "issues": [{
+    office.verdict = {"approved": True, "summary": "fine", "reasons": [], "checks": [], "issues": [{
         "severity": "minor", "file": "a.py", "line": 1, "title": "T",
         "explanation": "E", "suggestion": "S"}]}
 
@@ -315,7 +323,7 @@ def test_rework_prompt_lists_issues():
 @pytest.fixture
 def server(tmp_path):
     office = make_office(tmp_path)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(office))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(projects_with(office, tmp_path)))
     httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{httpd.server_port}", office
@@ -362,7 +370,7 @@ def test_http_blocks_cross_site_posts(server):
 def test_http_refuses_other_names_for_this_address(tmp_path):
     """DNS rebinding: a site points its own name at this address; the Host header gives it away."""
     office = make_office(tmp_path)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(office, allowed_hosts("100.64.0.7", ["box.ts.net"])))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(projects_with(office, tmp_path), allowed_hosts("100.64.0.7", ["box.ts.net"])))
     httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{httpd.server_port}"
@@ -433,7 +441,7 @@ def test_page_url_is_one_the_server_accepts():
 
 def test_a_client_that_stops_talking_is_dropped(tmp_path, monkeypatch):
     monkeypatch.setattr(office_server, "SOCKET_TIMEOUT_SECONDS", 0.5)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(make_office(tmp_path)))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(projects_with(make_office(tmp_path), tmp_path)))
     httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
@@ -460,7 +468,7 @@ def test_stop_only_stops_the_agent_it_names(fake_claude, tmp_path, monkeypatch):
 
 def test_snapshot_does_not_share_the_live_verdict(tmp_path):
     office = make_office(tmp_path)
-    office.verdict = {"approved": False, "issues": [], "sent": False}
+    office.verdict = {"approved": False, "summary": "bad", "reasons": [], "checks": [], "issues": [], "sent": False}
 
     snapshot = office.snapshot()
     office.verdict["sent"] = True
@@ -476,7 +484,7 @@ def test_ipv6_addresses_get_an_ipv6_server():
 
 def test_an_ipv6_server_serves_the_page(tmp_path):
     try:
-        httpd = office_server.server_class("::1")(("::1", 0), make_handler(make_office(tmp_path)))
+        httpd = office_server.server_class("::1")(("::1", 0), make_handler(projects_with(make_office(tmp_path), tmp_path)))
     except OSError:
         pytest.skip("no IPv6 on this machine")
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

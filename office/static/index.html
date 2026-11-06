@@ -15,7 +15,10 @@
       <span class="logo" aria-hidden="true"></span>
       <div>
         <h1>RENS OFFICE</h1>
-        <p class="workspace" id="workspace">—</p>
+        <p class="project-line">
+          <button type="button" class="link" id="btn-projects" data-i18n="btn_projects" hidden>◂ Projects</button>
+          <span class="workspace" id="workspace">—</span>
+        </p>
       </div>
     </div>
     <div class="meta">
@@ -34,7 +37,30 @@
     </div>
   </header>
 
-  <main class="layout">
+  <main class="projects-view" id="projects-view" hidden>
+    <section class="panel projects">
+      <h2 data-i18n="projects_heading">PROJECTS</h2>
+      <p class="projects-dir" id="projects-dir"></p>
+      <form class="project-form" id="new-project-form">
+        <label for="new-project-name" data-i18n="new_project_label">New project</label>
+        <div class="topic-row">
+          <input id="new-project-name" type="text" autocomplete="off" maxlength="100" data-i18n-placeholder="new_project_placeholder">
+          <button type="submit" class="btn primary" data-i18n="btn_create">Create</button>
+        </div>
+      </form>
+      <ol class="project-list" id="project-list"></ol>
+      <p class="empty" id="projects-empty" data-i18n="projects_empty"></p>
+      <form class="project-form" id="open-folder-form">
+        <label for="open-folder-path" data-i18n="open_folder_label">Open a folder from elsewhere</label>
+        <div class="topic-row">
+          <input id="open-folder-path" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="open_folder_placeholder">
+          <button type="submit" class="btn ghost" data-i18n="btn_open">Open</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <main class="layout" id="office-view">
     <section class="office-col">
       <div class="room">
         <div class="stage" id="stage">

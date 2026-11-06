@@ -1,4 +1,4 @@
-"""Local web server for the office: `ai-office --workspace ./my-project`."""
+"""Local web server for the office: `ai-office`, or `ai-office --workspace ./my-project`."""
 
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ from reviewer.context import ContextError
 from reviewer.llm import EFFORTS
 
 from .agents import WORKER_TOOLS, Busy, Office
-from .i18n import LANGUAGES
+from .i18n import LANGUAGES, t
+from .projects import Projects, default_projects_dir
 
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".woff2": "font/woff2"}
@@ -70,7 +71,7 @@ def _stop_serving(signum, frame):
     raise KeyboardInterrupt
 
 
-def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
+def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         timeout = SOCKET_TIMEOUT_SECONDS
@@ -108,7 +109,7 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
                 return self._json(HTTPStatus.FORBIDDEN, {"error": FORBIDDEN_HOST})
             path = urlsplit(self.path).path
             if path == "/api/state":
-                return self._json(HTTPStatus.OK, office.snapshot())
+                return self._json(HTTPStatus.OK, projects.snapshot())
             if path == "/api/events":
                 return self._events()
             name = "index.html" if path == "/" else path.removeprefix("/static/")
@@ -137,22 +138,31 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
             if not isinstance(body, dict):
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "expected a JSON object"})
 
+            def office() -> Office:
+                current = projects.office
+                if current is None:
+                    raise Busy(t(projects.lang, "no_project"))
+                return current
+
             actions = {
-                "/api/task": lambda: office.start_task(str(body.get("text", "")), files=body.get("files")),
+                "/api/projects/new": lambda: projects.create(str(body.get("name", ""))),
+                "/api/projects/open": lambda: projects.open(Path(str(body.get("path", "")))),
+                "/api/projects/close": projects.close,
+                "/api/lang": lambda: projects.set_language(str(body.get("lang", ""))),
+                "/api/task": lambda: office().start_task(str(body.get("text", "")), files=body.get("files")),
                 # Files come as base64 in JSON: like every other action, a cross-site page can't send it.
-                "/api/upload": lambda: {"name": office.save_upload(str(body.get("name", "")), body.get("data"))},
-                "/api/review": office.request_review,
-                "/api/rework": office.send_rework,
-                "/api/accept": office.accept,
-                "/api/stop": lambda: office.stop(str(body.get("agent", "worker"))),
-                "/api/ideas": lambda: office.generate_ideas(str(body.get("topic", "")), files=body.get("files")),
-                "/api/handoff": lambda: office.hand_off(body.get("index")),
-                "/api/lang": lambda: office.set_language(str(body.get("lang", ""))),
-                "/api/limits": office.refresh_limits,
-                "/api/choice": lambda: office.set_choice(
+                "/api/upload": lambda: {"name": office().save_upload(str(body.get("name", "")), body.get("data"))},
+                "/api/review": lambda: office().request_review(),
+                "/api/rework": lambda: office().send_rework(),
+                "/api/accept": lambda: office().accept(),
+                "/api/stop": lambda: office().stop(str(body.get("agent", "worker"))),
+                "/api/ideas": lambda: office().generate_ideas(str(body.get("topic", "")), files=body.get("files")),
+                "/api/handoff": lambda: office().hand_off(body.get("index")),
+                "/api/limits": lambda: office().refresh_limits(),
+                "/api/choice": lambda: office().set_choice(
                     str(body.get("agent", "")), body.get("model") or None, body.get("effort") or None
                 ),
-                "/api/autopilot": lambda: office.set_autopilot(
+                "/api/autopilot": lambda: office().set_autopilot(
                     body.get("enabled") is True, body.get("max_rounds")
                 ),
             }
@@ -169,16 +179,21 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
                 print(f"ai-office: {self.path}: {e!r}", file=sys.stderr)
                 return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"server error: {e}"})
             # An action answers with what it made (an upload, its name), else with the new state.
-            self._json(HTTPStatus.OK, result if result is not None else office.snapshot())
+            self._json(HTTPStatus.OK, result if result is not None else projects.snapshot())
 
         def _events(self):
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            q, backlog = office.subscribe()
+            # A page follows the open project; on the project list it waits for one to open.
+            office = projects.office
+            if office is None:
+                q, backlog, leave = projects.wait_for_project(), [], projects.stop_waiting
+            else:
+                (q, backlog), leave = office.subscribe(), office.unsubscribe
             try:
-                self._sse({"type": "state", "state": office.snapshot()})
+                self._sse({"type": "state", "state": projects.snapshot()})
                 for entry in backlog:
                     self._sse({"type": "log", "entry": entry})
                 while True:
@@ -190,7 +205,7 @@ def make_handler(office: Office, hosts: set[str] = LOOPBACK_NAMES):
             except OSError:
                 pass  # the page went away (a closed tab, a dropped connection)
             finally:
-                office.unsubscribe(q)
+                leave(q)
                 self.close_connection = True
 
         def _sse(self, event: dict) -> None:
@@ -205,7 +220,12 @@ def main(argv: list[str] | None = None) -> int:
         prog="ai-office",
         description="Three Claude agents in an office: one comes up with ideas, one writes code, one reviews it.",
     )
-    p.add_argument("--workspace", default="workspace", help="project folder the worker edits (default: ./workspace)")
+    p.add_argument(
+        "--projects",
+        default=str(default_projects_dir()),
+        help="folder that holds the projects, one folder each (default: %(default)s)",
+    )
+    p.add_argument("--workspace", help="open this project folder at start, instead of the project list")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--host", default="127.0.0.1", help="address to listen on (default: 127.0.0.1)")
     p.add_argument(
@@ -222,37 +242,44 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-skills", action="store_true", help="run the agents without the office's skills")
     args = p.parse_args(argv)
 
-    workspace = Path(args.workspace).resolve()
-    tools = [t for t in WORKER_TOOLS if not (args.no_bash and t == "Bash")]
-    office = Office(
-        workspace,
-        model=args.model,
-        effort=args.effort,
-        worker_tools=tools,
-        lang=args.lang,
-        skills=not args.no_skills,
-        choices_file=CHOICES_FILE,
-    )
+    tools = [tool for tool in WORKER_TOOLS if not (args.no_bash and tool == "Bash")]
+
+    def open_office(folder: Path, lang: str) -> Office:
+        return Office(
+            folder,
+            model=args.model,
+            effort=args.effort,
+            worker_tools=tools,
+            lang=lang,
+            skills=not args.no_skills,
+            choices_file=CHOICES_FILE,
+        )
+
+    projects = Projects(Path(args.projects).expanduser().resolve(), open_office, lang=args.lang)
+    if args.workspace:
+        try:
+            projects.open(Path(args.workspace))
+        except (ValueError, ContextError) as e:
+            print(f"ai-office: {e}", file=sys.stderr)
+            return 2
 
     bind_host = args.host.strip("[]")
     hosts = allowed_hosts(bind_host, args.allow_host)
-    server = server_class(bind_host)((bind_host, args.port), make_handler(office, hosts))
-    print(f"Rens Office: {page_url(bind_host, server.server_port)}  (workspace: {workspace})")
+    server = server_class(bind_host)((bind_host, args.port), make_handler(projects, hosts))
+    print(f"Rens Office: {page_url(bind_host, server.server_port)}  (projects: {projects.root})")
     if bind_host not in LOOPBACK_NAMES:
         print("warning: listening beyond this machine; anyone who can reach it can run the worker", file=sys.stderr)
     # `kill` and a closed terminal must stop the agents too: in their own sessions, they never hear it.
     for name in ("SIGTERM", "SIGHUP"):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), _stop_serving)
-    # The header shows the subscription's limits from the start, not only after the first task.
-    office.refresh_limits()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         # The agents' processes have their own sessions, so they would outlive the office.
-        office.shutdown()
+        projects.shutdown()
         server.server_close()
     return 0
 

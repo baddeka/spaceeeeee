@@ -24,12 +24,12 @@ pip install -e ".[dev]"
 ## Rens Office
 
 ```bash
-ai-office --workspace ./my-project
+ai-office
 ```
 
-Then open http://127.0.0.1:8000.
+Then open http://127.0.0.1:8000, and create a project or open one (see [Projects](#projects)).
 
-1. **Give task.** coderen, the developer, works in the `--workspace` folder: it creates and edits files and runs commands. Its speech bubble and the log show what it is doing right now.
+1. **Give task.** coderen, the developer, works in the project's folder: it creates and edits files and runs commands. Its speech bubble and the log show what it is doing right now.
 2. **Call checkren.** checkren, the reviewer, looks at everything coderen changed since the task started, runs the checks from `.ai-review.toml`, and gives a verdict. It can read files but never change them.
 3. **Send back.** The notes go to coderen, who continues the same conversation (`claude --resume`), so it remembers the task and its code.
 4. **Accept.** The current state is committed to git, and the next task starts from it.
@@ -38,7 +38,7 @@ If the folder does not exist, it is created with a git repository. The office ma
 
 ### idearen, the idea maker
 
-Write a topic under **Topic for idearen** and press **Get ideas**. idearen looks at the workspace, loads its skills and proposes 3 to 5 ideas, each with a pitch, why it is worth building, its scope (small, medium or large) and a complete brief for coderen. One is marked recommended.
+Write a topic under **Topic for idearen** and press **Get ideas**. idearen looks at the project, loads its skills and proposes 3 to 5 ideas, each with a pitch, why it is worth building, its scope (small, medium or large) and a complete brief for coderen. One is marked recommended.
 
 **Give to coderen** hands an idea over as the next task, and a sticky note flies across the room. idearen only reads files and may use web search, so it can think while the others work. Asking again continues its conversation, so you get new ideas instead of the same ones.
 
@@ -95,7 +95,7 @@ The skills live in `office/skills/<role>/skills/<name>/SKILL.md`. To add one, cr
 
 ### Files
 
-Give the agents files along with a task or a topic: a design, a brief as a PDF, a data set, a logo. Use **📎 Attach files**, drop them onto the form, or paste a screenshot into the text box (up to 20 MB each). They are kept in the workspace's `.rens-office/uploads/`, which is never committed or reviewed, and the agent gets their paths and opens them with Read, which shows images and PDFs too. coderen copies into the project only what the project needs.
+Give the agents files along with a task or a topic: a design, a brief as a PDF, a data set, a logo. Use **📎 Attach files**, drop them onto the form, or paste a screenshot into the text box (up to 20 MB each). They are kept in the project's `.rens-office/uploads/`, which is never committed or reviewed, and the agent gets their paths and opens them with Read, which shows images and PDFs too. coderen copies into the project only what the project needs.
 
 ### Model and effort
 
@@ -103,17 +103,20 @@ Each agent's drawer has a **Model** list (Haiku, Sonnet, Opus, Fable) and an **E
 
 ### Projects
 
-A project is the `--workspace` folder. Everything coderen makes stays there after the office stops, with its git history. To come back to a project, start the office with the same folder; for a new project, give it a new folder. Only these live while the office runs: coderen's conversation, the verdict, idearen's ideas and the log. After a restart coderen starts a new conversation and reads the files again.
+The office opens on the project list. Each project is a folder in `Documents/Rens Projects` (`--projects` picks another folder): create one, open one, or open a folder from elsewhere, and **◂ Projects** in the header goes back to the list once no agent is working. `--workspace DIR` opens a folder right away instead.
 
-Accept the work before you stop the office. The first task after a start commits everything in the folder as `office: before task`, so changes you had not accepted would no longer count as the change checkren reviews.
+A project remembers where it stands. Everything coderen makes stays in the folder with its git history, and the office keeps the rest in the folder's `.rens-office/`, which is never committed: the task, the verdict, idearen's ideas, the log and the tasks accepted so far, plus `summary.md`, a page to read on where the project is. Reopen it and all of it is back. coderen then starts a new conversation that gets the list of accepted tasks, and for a rework the current task too; idearen is told which ideas it already gave. A new conversation with these notes costs less than resuming a long one, and it works after the folder moves to another computer.
 
-To work on an existing repository, such as your team's, point `--workspace` at your clone and switch to a branch of your own first. The office commits on the current branch under your git name (`user.name` and `user.email` in git's settings), or as "Rens Office" when git has none, and never pushes. Keep secrets such as `.env` in `.gitignore`: the office commits every file git does not ignore.
+The office won't open a drive, your home folder or the projects folder itself as a project, since it commits every file in a project.
+
+To work on an existing repository, such as your team's, open your clone as a project and switch to a branch of your own first. The office commits on the current branch under your git name (`user.name` and `user.email` in git's settings), or as "Rens Office" when git has none, and never pushes. Keep secrets such as `.env` in `.gitignore`: the office commits every file git does not ignore.
 
 ### Options
 
 | Flag | What it does |
 |---|---|
-| `--workspace DIR` | project folder, default `./workspace` |
+| `--projects DIR` | folder that holds the projects, default `Documents/Rens Projects` |
+| `--workspace DIR` | open this project folder at start, instead of the project list |
 | `--port N` | port, default 8000 |
 | `--host ADDR` | address to listen on, default `127.0.0.1` |
 | `--allow-host NAME` | another name the page may be opened by, such as a Tailscale name (repeatable) |
@@ -189,7 +192,8 @@ reviewer/
   processes.py    ends a command together with everything it started
   cli.py          the ai-review command
 office/
-  agents.py       the office: idea maker, developer, reviewer, autopilot, skills, git snapshots
+  agents.py       the office: idea maker, developer, reviewer, autopilot, skills, git snapshots, its memory
+  projects.py     the project list and the project the office has open
   ideator.py      the idea maker's prompt and the schema of its ideas
   i18n.py         English and Russian texts of the office
   server.py       HTTP server and the event stream (SSE) for the page

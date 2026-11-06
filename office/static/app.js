@@ -26,6 +26,15 @@ const STRINGS = {
       task_placeholder: "For example: build a Python CLI that counts words in a file, with tests",
       btn_task: "Give task",
       btn_attach: "📎 Attach files",
+      btn_projects: "◂ Projects",
+      projects_heading: "PROJECTS",
+      new_project_label: "New project",
+      new_project_placeholder: "For example: hackathon-timer",
+      btn_create: "Create",
+      projects_empty: "No projects yet. Create the first one above.",
+      open_folder_label: "Open a folder from elsewhere",
+      open_folder_placeholder: "For example: C:\\Users\\you\\Desktop\\my-app",
+      btn_open: "Open",
       files_hint: "or drop them here, or paste a screenshot",
       btn_review: "Call checkren",
       btn_rework: "Send back",
@@ -77,6 +86,12 @@ const STRINGS = {
     in_use: "in use",
     no_skills: "No skills (started with --no-skills)",
     no_activity: "Nothing yet",
+    projects_in: (folder) => `Each project is a folder in ${folder}`,
+    open_project: "Open",
+    project_now: (title) => `now: ${title}`,
+    project_last: (title) => `last done: ${title}`,
+    project_fresh: "nothing done yet",
+    project_done: (n) => `tasks done: ${n}`,
     error_status: (code) => `Error ${code}`,
     no_connection: "Cannot reach the server",
     empty_task: "Write what needs to be done",
@@ -128,6 +143,15 @@ const STRINGS = {
       task_placeholder: "Например: сделай CLI на Python, который считает слова в файле, и напиши к нему тесты",
       btn_task: "Дать задачу",
       btn_attach: "📎 Прикрепить файлы",
+      btn_projects: "◂ Проекты",
+      projects_heading: "ПРОЕКТЫ",
+      new_project_label: "Новый проект",
+      new_project_placeholder: "Например: таймер-для-хакатона",
+      btn_create: "Создать",
+      projects_empty: "Проектов пока нет. Создай первый выше.",
+      open_folder_label: "Открыть папку из другого места",
+      open_folder_placeholder: "Например: C:\\Users\\you\\Desktop\\my-app",
+      btn_open: "Открыть",
       files_hint: "или перетащи их сюда, или вставь скриншот",
       btn_review: "Позвать checkren",
       btn_rework: "На доработку",
@@ -179,6 +203,12 @@ const STRINGS = {
     in_use: "сейчас",
     no_skills: "Навыков нет (запущено с --no-skills)",
     no_activity: "Пока ничего",
+    projects_in: (folder) => `Каждый проект — папка в ${folder}`,
+    open_project: "Открыть",
+    project_now: (title) => `сейчас: ${title}`,
+    project_last: (title) => `последнее: ${title}`,
+    project_fresh: "пока ничего не сделано",
+    project_done: (n) => `принято задач: ${n}`,
     error_status: (code) => `Ошибка ${code}`,
     no_connection: "Нет связи с сервером",
     empty_task: "Напиши, что нужно сделать",
@@ -290,11 +320,22 @@ function setText(el, text) {
 function render(s) {
   state = s;
   if (s.lang && s.lang !== lang) applyLanguage(s.lang);
-  const t = S();
-  $("workspace").textContent = s.workspace;
-  $("workspace").title = s.workspace;
-  $("cost").textContent = formatCost(s.cost_usd);
   renderLimits(s.limits, s.limits_checking);
+  // Without an open project the page is the project list.
+  const listing = !s.project;
+  $("projects-view").hidden = !listing;
+  $("office-view").hidden = listing;
+  $("btn-projects").hidden = listing;
+  // The list has no office to check the limits with; it shows them once a project has.
+  $("limits").hidden = listing && !s.limits?.length;
+  if (listing) {
+    renderProjects(s);
+    return;
+  }
+  const t = S();
+  $("workspace").textContent = s.project.path;
+  $("workspace").title = s.project.path;
+  $("cost").textContent = formatCost(s.cost_usd);
 
   for (const agent of ["worker", "reviewer", "ideator"]) {
     const a = s.agents[agent];
@@ -368,6 +409,49 @@ function renderLimits(limits, checking) {
     item.append(label, bar, value);
     return item;
   }));
+}
+
+function renderProjects(s) {
+  const t = S();
+  $("workspace").textContent = s.projects_dir;
+  $("workspace").title = s.projects_dir;
+  $("projects-dir").textContent = t.projects_in(s.projects_dir);
+  $("projects-empty").hidden = s.projects.length > 0;
+  $("project-list").replaceChildren(...s.projects.map((project) => {
+    const li = document.createElement("li");
+    li.className = "project-item";
+    const about = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = project.name;
+    const info = document.createElement("span");
+    info.className = "project-info";
+    const where = project.task ? t.project_now(project.task)
+      : project.last_done ? t.project_last(project.last_done) : t.project_fresh;
+    const when = new Date(project.updated * 1000).toLocaleString(lang, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    info.textContent = [where, t.project_done(project.done), when].join(" · ");
+    about.append(name, info);
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "btn primary";
+    open.textContent = t.open_project;
+    open.addEventListener("click", () => projectAction("/api/projects/open", { path: project.path }));
+    li.append(about, open);
+    return li;
+  }));
+}
+
+// Opening, creating or leaving a project changes the whole page, so it loads again: once, though
+// both the answer and the server's event about the switch ask for it.
+let reloading = false;
+
+function reloadPage() {
+  if (reloading) return;
+  reloading = true;
+  location.reload();
+}
+
+async function projectAction(path, body = {}) {
+  if (await post(path, body)) reloadPage();
 }
 
 function renderAutopilot(pilot) {
@@ -718,6 +802,7 @@ function connect() {
     const event = JSON.parse(msg.data);
     if (event.type === "state") render(event.state);
     else if (event.type === "log") addLog(event.entry);
+    else if (event.type === "reload") reloadPage();
   };
 }
 
@@ -886,6 +971,17 @@ document.querySelectorAll("[data-drawer]").forEach((button) => {
 });
 window.addEventListener("office:agent-click", (e) => openDrawer(e.detail.agent, $("scene")));
 $("drawer-close").addEventListener("click", closeDrawer);
+$("btn-projects").addEventListener("click", () => projectAction("/api/projects/close"));
+$("new-project-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("new-project-name");
+  if (input.value.trim()) projectAction("/api/projects/new", { name: input.value });
+});
+$("open-folder-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("open-folder-path");
+  if (input.value.trim()) projectAction("/api/projects/open", { path: input.value.trim() });
+});
 $("drawer-model").addEventListener("change", sendChoice);
 $("drawer-effort").addEventListener("change", sendChoice);
 $("drawer-backdrop").addEventListener("click", closeDrawer);

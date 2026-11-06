@@ -9,6 +9,7 @@ import json
 import os
 import queue
 import re
+import sys
 import threading
 import time
 from collections import deque
@@ -68,10 +69,14 @@ LOCAL_EXCLUDES = [
     "node_modules/", ".venv/", "venv/", ".DS_Store", ".rens-office/",
 ]
 
-# Files the user hands the agents live here in the workspace, outside the project: excluded above,
-# so never committed or reviewed. The agents get their paths, and the developer copies in what the
-# project needs.
-UPLOADS_DIR = Path(".rens-office") / "uploads"
+# The office's own folder in a project, excluded above, so never committed or reviewed: what it
+# remembers between starts, and the files the user hands the agents. The agents get those files'
+# paths, and the developer copies in what the project needs.
+OFFICE_DIR = Path(".rens-office")
+UPLOADS_DIR = OFFICE_DIR / "uploads"
+STATE_FILE = OFFICE_DIR / "state.json"
+LOG_FILE = OFFICE_DIR / "log.jsonl"
+SUMMARY_FILE = OFFICE_DIR / "summary.md"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 # Names Windows will not create, whatever the extension.
 WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{n}" for n in range(1, 10)), *(f"LPT{n}" for n in range(1, 10))}
@@ -254,12 +259,16 @@ class Office:
         self.topic: str | None = None
         self.ideas: list[dict] | None = None
         self.cost_usd = 0.0
+        # The tasks accepted in this project, oldest first: {"title", "commit", "time"}.
+        self.history: list[dict] = []
         # The subscription's usage limits, from the last rate_limit_event any agent's run reported.
         self.limits: list[dict] | None = None
         # halted: why the current autopilot run ended ("approved", "limit", "error", "stopped").
         self.autopilot = {"enabled": False, "max_rounds": DEFAULT_ROUNDS, "round": 0, "halted": None}
 
         self._ensure_repo()
+        self._saved: str | None = None
+        self._load_state()
 
     # ----- state and events -----
 
@@ -270,7 +279,8 @@ class Office:
                 "task": self.task,
                 # A copy: the event is sent later, and by then send_rework may have changed the verdict.
                 "verdict": dict(self.verdict) if self.verdict else None,
-                "workspace": str(self.workspace),
+                "project": {"name": self.workspace.name, "path": str(self.workspace)},
+                "history": [dict(done) for done in self.history],
                 "cost_usd": round(self.cost_usd, 4),
                 "limits": [dict(window) for window in self.limits] if self.limits else None,
                 "limits_checking": self._limits_run is not None,
@@ -360,13 +370,123 @@ class Office:
             q.put(event)
 
     def _emit_state(self) -> None:
+        self._save_state()
         self._broadcast({"type": "state", "state": self.snapshot()})
 
     def _log_entry(self, agent: str, kind: str, text: str) -> None:
         entry = {"agent": agent, "kind": kind, "text": text, "time": time.time()}
         with self._lock:
             self._log.append(entry)
+            self._keep(lambda: _append_line(self.workspace / LOG_FILE, json.dumps(entry, ensure_ascii=False)))
         self._broadcast({"type": "log", "entry": entry})
+
+    # ----- what the project remembers -----
+
+    def _remembered(self) -> dict:
+        """What the project keeps between starts. Statuses and bubbles are left out: they describe
+        work in progress, and nothing is in progress when the office opens a project."""
+        return {
+            "version": 1,
+            "baseline": self.baseline,
+            "task": self.task,
+            "task_title": self.task_title,
+            "verdict": self.verdict,
+            "worker_reply": self._worker_reply,
+            "topic": self.topic,
+            "ideas": self.ideas,
+            "history": self.history,
+            "cost_usd": round(self.cost_usd, 4),
+            "max_rounds": self.autopilot["max_rounds"],
+        }
+
+    def _save_state(self) -> None:
+        """Writes the project's state and its summary, only when they changed."""
+        with self._lock:
+            data = json.dumps(self._remembered(), ensure_ascii=False, indent=1)
+            if data == self._saved:
+                return
+            self._saved = data
+            self._keep(lambda: _write_file(self.workspace / STATE_FILE, data))
+            self._keep(lambda: _write_file(self.workspace / SUMMARY_FILE, self._summary()))
+
+    def _keep(self, write) -> None:
+        # A disk that refuses a write must not stop the office; the work itself is in git.
+        try:
+            write()
+        except OSError as e:
+            print(f"Rens Office: could not save to {self.workspace / OFFICE_DIR}: {e}", file=sys.stderr)
+
+    def _load_state(self) -> None:
+        """Picks the project up where it was left: the task, its verdict, the ideas and the log."""
+        try:
+            saved = json.loads((self.workspace / STATE_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            saved = None
+        if isinstance(saved, dict):
+            self.baseline = self._commit_or_none(saved.get("baseline"))
+            if self.baseline:
+                # A task, its verdict and the reply only mean something against the change since the baseline.
+                self.task = _text(saved.get("task"))
+                self.task_title = _text(saved.get("task_title"))
+                self.verdict = _verdict(saved.get("verdict"))
+                self._worker_reply = _text(saved.get("worker_reply"))
+            self.topic = _text(saved.get("topic"))
+            self.ideas = _ideas(saved.get("ideas")) if self.topic else None
+            self.history = [done for done in saved.get("history") or [] if _done(done)]
+            cost = saved.get("cost_usd")
+            self.cost_usd = float(cost) if isinstance(cost, (int, float)) else 0.0
+            rounds = saved.get("max_rounds")
+            if isinstance(rounds, int) and 1 <= rounds <= MAX_ROUNDS:
+                self.autopilot["max_rounds"] = rounds
+        self._log.extend(_read_log(self.workspace / LOG_FILE))
+        self._saved = json.dumps(self._remembered(), ensure_ascii=False, indent=1)
+
+    def _commit_or_none(self, sha) -> str | None:
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{7,64}", sha):
+            return None
+        try:
+            self._git("cat-file", "-e", f"{sha}^{{commit}}")
+        except context.ContextError:
+            return None  # the history was rewritten since; the next task starts a new baseline
+        return sha
+
+    def _summary(self) -> str:
+        """Where the project stands, for the person who opens the folder."""
+        lines = [
+            f"# {self._t('summary_title', project=self.workspace.name)}",
+            "",
+            self._t("summary_updated", time=_when(time.time())),
+            "",
+            f"## {self._t('summary_done')}",
+        ]
+        lines += [f"- {_when(done['time'])} · {done['title']}" for done in self.history] or [
+            self._t("summary_nothing_done")
+        ]
+        lines += ["", f"## {self._t('summary_now')}"]
+        lines += [f"**{self.task_title}**", "", self.task] if self.task else [self._t("summary_no_task")]
+        if self.verdict:
+            state = "sent" if self.verdict.get("sent") else "approved" if self.verdict["approved"] else "rejected"
+            lines += ["", f"## {self._t('summary_review_' + state)}", self.verdict["summary"]]
+            lines += [_issue_line(issue) for issue in self.verdict["issues"]]
+        if self.ideas:
+            lines += ["", f"## {self._t('summary_ideas', topic=self.topic)}"]
+            lines += [
+                f"- {idea['title']}" + (f" ({self._t('summary_idea_handed')})" if idea["handed"] else "")
+                for idea in self.ideas
+            ]
+        return "\n".join(lines) + "\n"
+
+    def _project_context(self, with_task: bool) -> str:
+        """For an agent starting a fresh conversation in a project with a past: what was done, and
+        for a rework the task and its notes. Nothing for a project without one."""
+        notes = []
+        if self.history:
+            notes += [self._t("context_done"), *(f"- {done['title']}" for done in self.history)]
+        if with_task and self.task:
+            notes += [self._t("context_task", task=self.task)]
+        if not notes:
+            return ""
+        return self._t("project_context", notes="\n".join(notes)) + "\n\n"
 
     def _set_agent(self, agent: str, status: str | None = None, bubble: str | None = None) -> None:
         with self._lock:
@@ -474,7 +594,7 @@ class Office:
             self._phrase("worker", "reading_findings")
             self.agents["reviewer"]["status"] = "idle"
             self._phrase("reviewer", "waiting_for_fixes")
-            run = self._prepare_worker(prompt)
+            run = self._prepare_worker(prompt, with_task=True)
         self._log_entry("reviewer", "handoff", self._t("log_handoff"))
         self._emit_state()
         self._start(self._work, run)
@@ -503,6 +623,7 @@ class Office:
             if self.baseline is None:
                 raise ValueError(self._t("nothing_to_accept"))
             self.baseline = self._commit(f"office: accepted: {self.task_title or 'work'}")
+            self.history.append({"title": self.task_title or "work", "commit": self.baseline, "time": time.time()})
             # Accepted work is done; the next task, or the next idea, starts from this commit.
             self.task = None
             self.task_title = None
@@ -541,6 +662,12 @@ class Office:
         self.wait_idle(grace)
         for run in runs:
             run.kill()
+
+    def close(self) -> None:
+        """Lets the project go: its work stops, its state is saved, and the pages showing it reload."""
+        self.shutdown()
+        self._save_state()
+        self._broadcast({"type": "reload"})
 
     def refresh_limits(self) -> None:
         """Reads the subscription's limits with one tiny request, unless a check is under way."""
@@ -606,9 +733,13 @@ class Office:
                 raise Busy(self._t("busy_ideator"))
             self.agents["ideator"]["status"] = "thinking"
             self._phrase("ideator", "ideator_thinking", topic=_shorten(topic, 40))
+            notes = self._files_note("topic_files", attachments)
+            if self._ideator_session is None and self.ideas:
+                # A fresh conversation does not know the ideas this project already has.
+                notes += "\n\n" + self._t("ideas_before", titles="; ".join(idea["title"] for idea in self.ideas))
             run = self._ideator_run = ClaudeCodeRun(
                 # Like the worker's, every message of the resumed conversation names the language.
-                idea_request(topic, self._t("reply_in"), self._files_note("topic_files", attachments)),
+                idea_request(topic, self._t("reply_in"), notes),
                 cwd=self.workspace,
                 tools=IDEATOR_TOOLS,
                 system_prompt=IDEATOR_PROMPT,
@@ -770,12 +901,16 @@ class Office:
 
     # ----- agent loops -----
 
-    def _prepare_worker(self, prompt: str) -> ClaudeCodeRun:
+    def _prepare_worker(self, prompt: str, with_task: bool = False) -> ClaudeCodeRun:
         """Sets up the developer's next run; called under the lock, with the status set to working.
 
-        The run exists before its thread starts, so Stop works from the first moment.
+        The run exists before its thread starts, so Stop works from the first moment. A fresh
+        conversation in a project with a past starts from the office's notes on it, and
+        `with_task` adds the current task, which a rework's notes alone don't say.
         """
         self._worker_reply = None
+        if self.session_id is None:
+            prompt = self._project_context(with_task) + prompt
         self._worker_run = ClaudeCodeRun(
             # The language goes in every message: a resumed session keeps its original system prompt.
             f"{prompt}\n\n{self._t('reply_in')}",
@@ -962,6 +1097,101 @@ def safe_file_name(name: str) -> str:
     if stem.upper() in WINDOWS_RESERVED:
         stem = f"_{stem}"
     return stem[:100] + suffix[:20] or "file"
+
+
+def _write_file(path: Path, text: str) -> None:
+    """Replaces a file in one step, so a crash halfway leaves the old one, not half of the new."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _append_line(path: Path, line: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
+def _read_log(path: Path) -> list[dict]:
+    """The last LOG_LIMIT entries of a project's log; a log that grew far past that is cut back."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    entries = []
+    for line in lines[-LOG_LIMIT:]:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue  # a line cut short when the office was killed mid-write
+        if isinstance(entry, dict) and all(isinstance(entry.get(k), str) for k in ("agent", "kind", "text")) \
+                and isinstance(entry.get("time"), (int, float)):
+            entries.append(entry)
+    if len(lines) > 2 * LOG_LIMIT:
+        try:
+            _write_file(path, "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries))
+        except OSError:
+            pass  # it is read the same way next time
+    return entries
+
+
+def _text(value) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _verdict(value) -> dict | None:
+    ok = (
+        isinstance(value, dict)
+        and isinstance(value.get("approved"), bool)
+        and isinstance(value.get("summary"), str)
+        and isinstance(value.get("reasons"), list)
+        and isinstance(value.get("checks"), list)
+        and isinstance(value.get("issues"), list)
+        and all(_issue(issue) for issue in value["issues"])
+    )
+    return value if ok else None
+
+
+def _issue(value) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("severity") in ("critical", "major", "minor", "nit")
+        and all(isinstance(value.get(k), str) for k in ("file", "title", "explanation", "suggestion"))
+        and isinstance(value.get("line"), int)
+    )
+
+
+def _ideas(value) -> list[dict] | None:
+    if not isinstance(value, list):
+        return None
+    ideas = [
+        idea for idea in value
+        if isinstance(idea, dict)
+        and all(isinstance(idea.get(k), str) for k in ("title", "pitch", "why", "task"))
+        and idea.get("scope") in ("small", "medium", "large")
+        and isinstance(idea.get("recommended"), bool)
+        and isinstance(idea.get("handed"), bool)
+    ]
+    return ideas or None
+
+
+def _done(value) -> bool:
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("title"), str)
+        and isinstance(value.get("commit"), str)
+        and isinstance(value.get("time"), (int, float))
+    )
+
+
+def _when(timestamp: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(timestamp))
+
+
+def _issue_line(issue: dict) -> str:
+    where = f"{issue['file']}:{issue['line']}" if issue["line"] else issue["file"]
+    return f"- [{issue['severity']}] {where + ' ' if where else ''}{issue['title']}"
 
 
 def _file_names(files: list[Path]) -> str:
