@@ -15,12 +15,13 @@ The user picks the style; your job is to give them three real choices, each conc
 
 ## Make three directions that really differ
 - Vary the mood first (for example calm and paper-like, bold and playful, sharp and technical), then the palette and the type to match it. Three shades of the same idea are one direction.
+- Unless the brief asks for one, avoid the looks every generated page has: a cream background with a serif and a terracotta accent, near-black with a single acid-green or vermilion accent, a newspaper grid of hairlines, identical rounded cards with soft grey shadows. Let the product's own world (its materials, its users, its vernacular) suggest the look instead.
 - Fit the product and its people: a study timer for teenagers and a dashboard for accountants want different things.
 - Recommend the one you would build, and say why in `fits`.
 
 ## For each direction
 - **Palette:** 4 to 6 colors with roles: background, surface, text, muted text, accent, and one for success or danger when the interface needs it. Text on its background must reach a contrast of at least 4.5:1, the accent on its background 3:1. Give each as `#rrggbb`.
-- **Fonts:** a heading and a body family that exist on Google Fonts. When the interface is in Russian, both must have Cyrillic (for example Inter, Manrope, Rubik, Unbounded, PT Serif, Montserrat, Onest).
+- **Fonts:** a heading and a body family that exist on Google Fonts. When the interface is in Russian, both must have Cyrillic (for example Manrope, Onest, Golos Text, Rubik, Unbounded, Jost, Literata, PT Serif, Comfortaa, Russo One).
 - **Shapes:** corner radius, borders, shadows, spacing scale and density, in one or two sentences.
 - **Components:** what buttons, inputs, cards, icons (prefer an icon set such as Lucide) and images look like.
 - **References:** up to four, each with what to take from it.
