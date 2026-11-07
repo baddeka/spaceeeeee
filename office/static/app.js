@@ -19,7 +19,7 @@ const STRINGS = {
       topic_placeholder: "For example: tools for students before exams",
       btn_ideas: "Get ideas",
       style_label: "STYLE FROM FRONTREN",
-      style_placeholder: "What it is and who it is for, or leave empty for the current project",
+      style_placeholder: "The product and who it is for, or leave empty",
       btn_styles: "Show styles",
       style_files_hint: "screenshots you like: Pinterest, Dribbble, anything",
       open_drawer: "Open skills and activity",
@@ -153,7 +153,7 @@ const STRINGS = {
       topic_placeholder: "Например: инструменты для студентов перед сессией",
       btn_ideas: "Придумать идеи",
       style_label: "СТИЛЬ ОТ FRONTREN",
-      style_placeholder: "Что это и для кого, или оставь пустым для текущего проекта",
+      style_placeholder: "Что это и для кого, или оставь пустым",
       btn_styles: "Показать стили",
       style_files_hint: "скриншоты, которые нравятся: Pinterest, Dribbble, что угодно",
       open_drawer: "Открыть навыки и действия",
@@ -590,6 +590,8 @@ function styleCard(direction, index, styles, t) {
 
   const swatches = document.createElement("div");
   swatches.className = "swatches";
+  swatches.setAttribute("role", "img");
+  swatches.setAttribute("aria-label", direction.palette.map((swatch) => `${swatch.role} ${swatch.hex}`).join(", "));
   swatches.append(...direction.palette.map((swatch) => {
     const chip = document.createElement("span");
     chip.className = "swatch";
@@ -659,6 +661,7 @@ function styleCard(direction, index, styles, t) {
   choose.className = "btn style-choose";
   choose.dataset.index = String(index);
   choose.textContent = styles.chosen === index ? t.chosen_style : t.choose_style;
+  choose.setAttribute("aria-label", `${choose.textContent}: ${direction.name}`);
 
   li.append(head, swatches, preview, summary, details, choose);
   return li;
@@ -691,13 +694,15 @@ function ownerOf(s) {
   return DEVELOPERS.includes(s?.owner) ? s.owner : "backend";
 }
 
-function handoffButton(index, developer, label, className) {
+function handoffButton(index, title, developer, label, className) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `btn idea-handoff ${className}`;
   button.dataset.index = String(index);
   button.dataset.developer = developer;
   button.textContent = label;
+  // Every card has the same buttons, so a screen reader also hears which idea each one gives away.
+  button.setAttribute("aria-label", `${label}: ${title}`);
   return button;
 }
 
@@ -757,11 +762,11 @@ function ideaCard(idea, index, t) {
   const actions = document.createElement("div");
   actions.className = "idea-actions";
   if (idea.handed) {
-    actions.append(handoffButton(index, developer, `✓ ${t.handed(t.names[developer])}`, "main"));
+    actions.append(handoffButton(index, idea.title, developer, `✓ ${t.handed(t.names[developer])}`, "main"));
   } else {
     actions.append(
-      handoffButton(index, developer, t.hand_off(t.names[developer]), "main"),
-      handoffButton(index, other, t.hand_other(t.names[other]), "ghost other"),
+      handoffButton(index, idea.title, developer, t.hand_off(t.names[developer]), "main"),
+      handoffButton(index, idea.title, other, t.hand_other(t.names[other]), "ghost other"),
     );
   }
 

@@ -128,6 +128,14 @@ def test_a_broken_state_opens_a_clean_project(tmp_path):
     assert [e["text"] for e in office._log] == ["kept"]
 
 
+def test_log_entries_from_the_single_developer_are_backrens(tmp_path):
+    folder = tmp_path / "app"
+    (folder / LOG_FILE).parent.mkdir(parents=True)
+    (folder / LOG_FILE).write_text(json.dumps({"agent": "worker", "kind": "result", "text": "done", "time": 1.0}) + "\n")
+
+    assert Office(folder)._log[0]["agent"] == "backend"
+
+
 @pytest.mark.parametrize("baseline", ["0" * 40, "not a sha", 42])
 def test_a_baseline_gone_from_git_starts_over(tmp_path, baseline):
     folder = tmp_path / "app"

@@ -1339,6 +1339,8 @@ def _read_log(path: Path) -> list[dict]:
             continue  # a line cut short when the office was killed mid-write
         if isinstance(entry, dict) and all(isinstance(entry.get(k), str) for k in ("agent", "kind", "text")) \
                 and isinstance(entry.get("time"), (int, float)):
+            if entry["agent"] == "worker":
+                entry["agent"] = "backend"  # logged before there were two developers, like the choices
             entries.append(entry)
     if len(lines) > 2 * LOG_LIMIT:
         try:
