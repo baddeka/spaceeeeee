@@ -107,6 +107,11 @@ MESSAGES = {
             "The user attached these files about the topic:\n{files}\n"
             "Read them with the Read tool first and build the ideas on what they say."
         ),
+        "style_files": (
+            "The user attached these files for the style:\n{files}\n"
+            "Open each with the Read tool first: screenshots and designs show what the user likes."
+        ),
+        "styles_before": "Directions you already proposed, so propose different ones unless the brief asks for them: {names}",
         "unknown_language": "Unknown language",
         "bad_rounds": "Rounds must be between 1 and 10",
         # prompts for the developers
@@ -135,6 +140,15 @@ MESSAGES = {
         "skill_market-check": "Checks what already exists and finds what is missing",
         "skill_write-brief": "Writes a brief the developer can build from without questions",
         "skill_ui-brief": "Describes the screens, flow and mood for frontren, and leaves the style to it",
+        "skill_design-directions": "Finds references and proposes distinct styles to choose from",
+        "styles_thinking": "Looking for references and styles",
+        "styles_ready": "Styles ready: {n}. Pick one",
+        "style_chosen": "The style “{name}” is in DESIGN.md",
+        "log_styles": "Styles for: {brief}",
+        "log_styles_ready": "{n} styles: {names}",
+        "log_style_chosen": "Chose the style “{name}” for DESIGN.md",
+        "no_styles": "Ask frontren for styles first",
+        "bad_style": "There is no such style",
         # idea maker
         "ideator_waiting": "Give me a topic",
         "ideator_thinking": "Thinking about “{topic}”",
@@ -249,6 +263,11 @@ MESSAGES = {
             "К теме приложены файлы:\n{files}\n"
             "Сначала прочитай их инструментом Read и строй идеи на том, что в них сказано."
         ),
+        "style_files": (
+            "Пользователь приложил файлы для стиля:\n{files}\n"
+            "Сначала открой каждый инструментом Read: скриншоты и макеты показывают, что ему нравится."
+        ),
+        "styles_before": "Стили, которые ты уже предлагал; предложи другие, если в запросе не сказано иначе: {names}",
         "unknown_language": "Неизвестный язык",
         "bad_rounds": "Число раундов: от 1 до 10",
         "rework_approved": "checkren одобряет работу, но есть замечания. Пользователь просит их учесть.",
@@ -275,6 +294,15 @@ MESSAGES = {
         "skill_market-check": "Проверяет, что уже существует, и находит, чего не хватает",
         "skill_write-brief": "Пишет ТЗ, по которому исполнитель сделает работу без вопросов",
         "skill_ui-brief": "Описывает экраны, сценарий и настроение для frontren, а стиль оставляет ему",
+        "skill_design-directions": "Ищет референсы и предлагает разные стили на выбор",
+        "styles_thinking": "Ищу референсы и стили",
+        "styles_ready": "Стилей готово: {n}. Выбери один",
+        "style_chosen": "Стиль «{name}» записан в DESIGN.md",
+        "log_styles": "Стили для: {brief}",
+        "log_styles_ready": "Стилей: {n} — {names}",
+        "log_style_chosen": "Выбран стиль «{name}» для DESIGN.md",
+        "no_styles": "Сначала попроси frontren предложить стили",
+        "bad_style": "Нет такого стиля",
         "ideator_waiting": "Дай мне тему",
         "ideator_thinking": "Думаю над темой «{topic}»",
         "ideas_ready": "Идей готово: {count}",

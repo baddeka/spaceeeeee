@@ -58,6 +58,7 @@ class ClaudeCodeRun:
         accept_edits: bool = False,
         persist_session: bool = True,
         plugin_dirs: list[Path] | None = None,
+        mcp_tools: list[str] | None = None,
         claude_bin: str | None = None,
     ):
         self.prompt = prompt
@@ -70,8 +71,12 @@ class ClaudeCodeRun:
         args = ["-p", "--output-format", "stream-json", "--verbose"]
         # --tools limits which built-in tools exist at all; "" disables every one.
         args += ["--tools", ",".join(tools)]
-        if tools:
-            args += ["--allowedTools", *tools]
+        if tools or mcp_tools:
+            args += ["--allowedTools", *tools, *(mcp_tools or [])]
+        # Claude Code connects every MCP server the user set up, and their tools fill the context
+        # even when they may not be used. A run gets the servers only when it is given MCP tools.
+        if not mcp_tools:
+            args.append("--strict-mcp-config")
         if system_prompt:
             args += ["--system-prompt", system_prompt]
         if append_system_prompt:

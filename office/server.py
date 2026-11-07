@@ -160,6 +160,8 @@ def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
                 "/api/stop": lambda: office().stop(str(body.get("agent", ""))),
                 "/api/ideas": lambda: office().generate_ideas(str(body.get("topic", "")), files=body.get("files")),
                 "/api/handoff": lambda: office().hand_off(body.get("index"), body.get("developer") or None),
+                "/api/styles": lambda: office().propose_styles(str(body.get("brief", "")), files=body.get("files")),
+                "/api/style": lambda: office().choose_style(body.get("index")),
                 "/api/limits": lambda: office().refresh_limits(),
                 "/api/choice": lambda: office().set_choice(
                     str(body.get("agent", "")), body.get("model") or None, body.get("effort") or None

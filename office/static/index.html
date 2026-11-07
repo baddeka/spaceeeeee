@@ -117,6 +117,22 @@
         <ol class="idea-cards" id="idea-cards"></ol>
       </form>
 
+      <form class="panel styles" id="style-form">
+        <label for="style-input" data-i18n="style_label">STYLE FROM FRONTREN</label>
+        <div class="topic-row">
+          <input id="style-input" type="text" autocomplete="off" maxlength="300" data-i18n-placeholder="style_placeholder">
+          <button type="submit" class="btn styles-btn" id="btn-styles" data-i18n="btn_styles">Show styles</button>
+          <button type="button" class="btn ghost" id="btn-styles-stop" data-i18n="btn_stop">Stop</button>
+        </div>
+        <div class="files">
+          <button type="button" class="btn ghost attach" id="style-attach" data-i18n="btn_attach">Attach files</button>
+          <input type="file" id="style-file-input" multiple hidden>
+          <span class="files-hint" data-i18n="style_files_hint">screenshots you like</span>
+          <ul class="file-chips" id="style-files"></ul>
+        </div>
+        <ol class="style-cards" id="style-cards"></ol>
+      </form>
+
       <form class="panel task" id="task-form" data-developer="backend">
         <div class="task-head">
           <label for="task-input" data-i18n="task_label">TASK FOR</label>

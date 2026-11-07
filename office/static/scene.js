@@ -800,7 +800,22 @@
     [16, 10, 6, 4, "#bb9af7"],
   ];
 
+  // While frontren looks for a style, pictures and swatches pin themselves to a moodboard.
+  const MOOD_TILES = [
+    [1, 1, 7, 5, "#f59fb8"],
+    [9, 1, 6, 7, "#7dcfff"],
+    [16, 1, 7, 4, "#e0af68"],
+    [1, 7, 7, 8, "#9ece6a"],
+    [9, 9, 6, 6, "#bb9af7"],
+    [16, 6, 7, 9, "#f7f3ea"],
+  ];
+
   function drawPageScreen(c, s, status) {
+    if (status === "thinking") {
+      const pinned = Math.floor(frame / 4) % (MOOD_TILES.length + 3);
+      for (const [x, y, w, h, color] of MOOD_TILES.slice(0, pinned)) rect(c, s.x + x, s.y + y, w, h, color);
+      return;
+    }
     const building = status === "working";
     const shown = building ? Math.floor(frame / 3) % (PAGE_BLOCKS.length + 3) : PAGE_BLOCKS.length;
     c.save();

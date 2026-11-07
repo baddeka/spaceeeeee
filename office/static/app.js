@@ -18,6 +18,10 @@ const STRINGS = {
       topic_label: "TOPIC FOR IDEAREN",
       topic_placeholder: "For example: tools for students before exams",
       btn_ideas: "Get ideas",
+      style_label: "STYLE FROM FRONTREN",
+      style_placeholder: "What it is and who it is for, or leave empty for the current project",
+      btn_styles: "Show styles",
+      style_files_hint: "screenshots you like: Pinterest, Dribbble, anything",
       open_drawer: "Open skills and activity",
       task_label: "TASK FOR",
       dev_label: "Who gets the task",
@@ -107,6 +111,14 @@ const STRINGS = {
     hand_off: (name) => `Give to ${name}`,
     hand_other: (name) => `or to ${name}`,
     handed: (name) => `With ${name}`,
+    fonts: (heading, body) => `${heading} · ${body}`,
+    preview_button: "Start",
+    style_more: "Shapes, components, references",
+    style_shapes: "Shapes:",
+    style_components: "Components:",
+    style_fits: "Why it fits:",
+    choose_style: "Choose",
+    chosen_style: "✓ In DESIGN.md",
     limits: { five_hour: "5h", seven_day: "week", seven_day_opus: "week · Opus", seven_day_sonnet: "week · Sonnet" },
     limits_none: "limits —",
     limits_checking: "limits…",
@@ -140,6 +152,10 @@ const STRINGS = {
       topic_label: "ТЕМА ДЛЯ IDEAREN",
       topic_placeholder: "Например: инструменты для студентов перед сессией",
       btn_ideas: "Придумать идеи",
+      style_label: "СТИЛЬ ОТ FRONTREN",
+      style_placeholder: "Что это и для кого, или оставь пустым для текущего проекта",
+      btn_styles: "Показать стили",
+      style_files_hint: "скриншоты, которые нравятся: Pinterest, Dribbble, что угодно",
       open_drawer: "Открыть навыки и действия",
       task_label: "ЗАДАЧА ДЛЯ",
       dev_label: "Кому задача",
@@ -229,6 +245,14 @@ const STRINGS = {
     hand_off: (name) => `Передать ${name}`,
     hand_other: (name) => `или ${name}`,
     handed: (name) => `У ${name}`,
+    fonts: (heading, body) => `${heading} · ${body}`,
+    preview_button: "Начать",
+    style_more: "Формы, компоненты, референсы",
+    style_shapes: "Формы:",
+    style_components: "Компоненты:",
+    style_fits: "Почему подходит:",
+    choose_style: "Выбрать",
+    chosen_style: "✓ В DESIGN.md",
     limits: { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя · Opus", seven_day_sonnet: "неделя · Sonnet" },
     limits_none: "лимиты —",
     limits_checking: "лимиты…",
@@ -362,6 +386,8 @@ function render(s) {
 
   const workingDev = DEVELOPERS.find((dev) => s.agents[dev]?.status === "working");
   const working = Boolean(workingDev);
+  // A developer looking for a style takes no task until it is done.
+  const looking = (dev) => s.agents[dev]?.status === "thinking";
   const reviewing = s.agents.reviewer.status === "reviewing";
   const busy = working || reviewing;
   const started = s.task !== null;
@@ -369,9 +395,9 @@ function render(s) {
   const needsRework = fresh && !s.verdict.approved;
   const hasIssues = fresh && s.verdict.issues.length > 0;
 
-  $("btn-task").disabled = busy;
+  $("btn-task").disabled = busy || looking(taskDeveloper);
   $("btn-review").disabled = busy || !started;
-  $("btn-rework").disabled = busy || !(needsRework || hasIssues);
+  $("btn-rework").disabled = busy || looking(ownerOf(s)) || !(needsRework || hasIssues);
   $("btn-accept").disabled = busy || !started;
   $("btn-stop").disabled = !working;
 
@@ -387,6 +413,7 @@ function render(s) {
 
   renderAutopilot(s.autopilot);
   renderIdeas(s, busy);
+  renderStyles(s, busy);
   renderVerdict(s.verdict, ownerOf(s));
   if (drawerAgent) renderDrawer();
   window.OfficeScene?.setState(s);
@@ -505,8 +532,158 @@ function renderIdeas(s, busy) {
   }
   list.querySelectorAll(".idea-handoff").forEach((button) => {
     const idea = s.ideas[Number(button.dataset.index)];
-    button.disabled = busy || idea.handed;
+    button.disabled = busy || idea.handed || s.agents[button.dataset.developer]?.status === "thinking";
   });
+}
+
+// ---------- frontren's styles ----------
+
+let stylesKey = "";
+
+function renderStyles(s, busy) {
+  const t = S();
+  const frontren = s.agents.frontend?.status;
+  $("btn-styles").disabled = frontren === "thinking" || frontren === "working";
+  $("btn-styles-stop").disabled = frontren !== "thinking";
+  const list = $("style-cards");
+  // Rebuild only when the styles change, so open details stay open when one is chosen.
+  const key = JSON.stringify([lang, s.styles]);
+  if (key !== stylesKey) {
+    const names = (styles) => (styles?.directions || []).map((d) => d.name).join("\n");
+    const same = stylesKey && names(JSON.parse(stylesKey)[1]) === names(s.styles);
+    const open = same ? [...list.querySelectorAll("details")].map((d) => d.open) : [];
+    stylesKey = key;
+    const directions = s.styles?.directions || [];
+    loadFonts(directions);
+    list.replaceChildren(...directions.map((direction, index) => styleCard(direction, index, s.styles, t)));
+    list.querySelectorAll("details").forEach((d, i) => (d.open = Boolean(open[i])));
+  }
+  // Writing DESIGN.md waits while a developer works or checkren reviews.
+  list.querySelectorAll(".style-choose").forEach((button) => (button.disabled = busy));
+}
+
+// The colors a preview needs, found by role: frontren names them background, text and accent.
+function pick(palette, word, fallback) {
+  const found = palette.find((swatch) => swatch.role.toLowerCase().includes(word) && !/muted/i.test(swatch.role));
+  return (found || palette[fallback] || palette[0]).hex;
+}
+
+function styleCard(direction, index, styles, t) {
+  const li = document.createElement("li");
+  li.className = "style";
+  li.dataset.chosen = String(styles.chosen === index);
+
+  const head = document.createElement("div");
+  head.className = "idea-head";
+  const name = document.createElement("strong");
+  name.textContent = direction.name;
+  const mood = document.createElement("span");
+  mood.className = "mood";
+  mood.textContent = direction.mood;
+  head.append(name, mood);
+  if (styles.recommended === index) {
+    const star = document.createElement("span");
+    star.className = "star";
+    star.textContent = `★ ${t.recommended}`;
+    head.append(star);
+  }
+
+  const swatches = document.createElement("div");
+  swatches.className = "swatches";
+  swatches.append(...direction.palette.map((swatch) => {
+    const chip = document.createElement("span");
+    chip.className = "swatch";
+    chip.style.background = swatch.hex; // checked as #rrggbb by the server
+    chip.title = `${swatch.role}: ${swatch.hex}`;
+    return chip;
+  }));
+
+  // A small piece of interface in this style: its colors and its two fonts.
+  const preview = document.createElement("div");
+  preview.className = "style-preview";
+  const background = pick(direction.palette, "background", 0);
+  preview.style.background = background;
+  preview.style.color = pick(direction.palette, "text", 1);
+  preview.style.fontFamily = fontStack(direction.body_font);
+  const title = document.createElement("strong");
+  title.textContent = direction.name;
+  title.style.fontFamily = fontStack(direction.heading_font);
+  const fonts = document.createElement("span");
+  fonts.textContent = t.fonts(direction.heading_font, direction.body_font);
+  const button = document.createElement("span");
+  button.className = "preview-button";
+  button.textContent = t.preview_button;
+  button.style.background = pick(direction.palette, "accent", 2);
+  button.style.color = background;
+  preview.append(title, fonts, button);
+
+  const summary = document.createElement("p");
+  richText(summary, direction.summary);
+
+  const details = document.createElement("details");
+  const more = document.createElement("summary");
+  more.textContent = t.style_more;
+  const body = document.createElement("div");
+  body.className = "brief";
+  for (const [label, text] of [[t.style_shapes, direction.shapes], [t.style_components, direction.components],
+    [t.style_fits, direction.fits]]) {
+    const p = document.createElement("p");
+    const strong = document.createElement("strong");
+    strong.textContent = label;
+    const span = document.createElement("span");
+    richText(span, text);
+    p.append(strong, " ", span);
+    body.append(p);
+  }
+  if (direction.references.length) {
+    const refs = document.createElement("ul");
+    refs.className = "references";
+    refs.append(...direction.references.map((ref) => {
+      const item = document.createElement("li");
+      const link = document.createElement("a");
+      link.textContent = ref.title;
+      if (/^https?:\/\//i.test(ref.url)) {
+        link.href = ref.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+      }
+      item.append(link, ` — ${ref.take}`);
+      return item;
+    }));
+    body.append(refs);
+  }
+  details.append(more, body);
+
+  const choose = document.createElement("button");
+  choose.type = "button";
+  choose.className = "btn style-choose";
+  choose.dataset.index = String(index);
+  choose.textContent = styles.chosen === index ? t.chosen_style : t.choose_style;
+
+  li.append(head, swatches, preview, summary, details, choose);
+  return li;
+}
+
+// The fonts a direction names, from Google Fonts like the page's own; each is fetched once.
+const loadedFonts = new Set();
+
+function loadFonts(directions) {
+  for (const direction of directions) {
+    for (const family of [direction.heading_font, direction.body_font]) {
+      const name = String(family || "").trim();
+      if (!name || loadedFonts.has(name) || loadedFonts.size >= 24) continue;
+      loadedFonts.add(name);
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name).replace(/%20/g, "+")}&display=swap`;
+      document.head.append(link);
+    }
+  }
+}
+
+// A font name as a CSS string, so no name can break out of the font-family value.
+function fontStack(name) {
+  return `${JSON.stringify(String(name))}, system-ui, sans-serif`;
 }
 
 // The developer who has the current task; its review notes go back to it.
@@ -905,6 +1082,17 @@ $("idea-cards").addEventListener("click", (e) => {
   }
 });
 
+$("style-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  // An empty brief is fine: frontren then works it out from the project and its task.
+  if (await post("/api/styles", { brief: $("style-input").value, files: attached.style })) clearFiles("style");
+});
+$("btn-styles-stop").addEventListener("click", () => post("/api/stop", { agent: "frontend" }));
+$("style-cards").addEventListener("click", (e) => {
+  const button = e.target.closest(".style-choose");
+  if (button && !button.disabled) post("/api/style", { index: Number(button.dataset.index) });
+});
+
 // ---------- who gets the task ----------
 
 function setTaskDeveloper(developer) {
@@ -914,6 +1102,7 @@ function setTaskDeveloper(developer) {
   });
   $("task-form").dataset.developer = taskDeveloper;
   $("task-input").placeholder = S().task_placeholder[taskDeveloper];
+  if (state?.agents) render(state); // the task button waits for a developer looking for a style
   try {
     localStorage.setItem(DEVELOPER_KEY, taskDeveloper);
   } catch {
@@ -928,7 +1117,7 @@ document.querySelectorAll(".dev-switch button").forEach((button) => {
 // ---------- files for the agents ----------
 
 // Files attached to the next task or topic. Each is uploaded at once; the task names them.
-const attached = { task: [], topic: [] };
+const attached = { task: [], topic: [], style: [] };
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 function renderFiles(kind) {
@@ -996,7 +1185,8 @@ function readBase64(file) {
   });
 }
 
-for (const [kind, formId, inputId] of [["task", "task-form", "task-input"], ["topic", "ideas-form", "topic-input"]]) {
+const FILE_FORMS = [["task", "task-form", "task-input"], ["topic", "ideas-form", "topic-input"], ["style", "style-form", "style-input"]];
+for (const [kind, formId, inputId] of FILE_FORMS) {
   const picker = $(`${kind}-file-input`);
   $(`${kind}-attach`).addEventListener("click", () => picker.click());
   picker.addEventListener("change", () => {

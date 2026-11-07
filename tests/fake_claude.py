@@ -3,7 +3,7 @@
 
 Reads FAKE_CLAUDE_LOG (where to append the received args), FAKE_CLAUDE_REVIEW (the review to
 return when called with the review schema), FAKE_CLAUDE_IDEAS (the ideas to return when called
-with the ideas schema), FAKE_CLAUDE_SKILL (a skill the developer loads), FAKE_CLAUDE_FAIL,
+with the ideas schema), FAKE_CLAUDE_STYLES (the style directions), FAKE_CLAUDE_SKILL (a skill the developer loads), FAKE_CLAUDE_FAIL,
 FAKE_CLAUDE_NOISE (bytes of stderr to write first), FAKE_CLAUDE_HANG (a file to write the pid
 of a child process to before waiting forever, like a developer running a server) and
 FAKE_CLAUDE_RATE_LIMIT (the rate_limit_info of a rate_limit_event to report).
@@ -50,6 +50,31 @@ DEFAULT_IDEAS = {
     "recommended": 1,
 }
 
+DEFAULT_STYLES = {
+    "directions": [
+        {"name": "Calm Paper", "mood": "calm, warm, focused", "summary": "Off-white paper and soft ink.",
+         "palette": [{"role": "background", "hex": "#f7f3ea"}, {"role": "text", "hex": "#2b2433"},
+                     {"role": "accent | links", "hex": "#e0508a"}, {"role": "muted text", "hex": "#75695a"}],
+         "heading_font": "Unbounded", "body_font": "Onest", "shapes": "Soft 12px corners, no shadows.",
+         "components": "Pill buttons and Lucide icons.",
+         "references": [{"title": "Dribbble: focus timer", "url": "https://dribbble.com/shots/1-focus-timer",
+                         "take": "the big ring"},
+                        {"title": "A trap", "url": "javascript:alert(1)", "take": "nothing"}],
+         "fits": "Students revise for hours; a quiet page keeps them in the flow."},
+        {"name": "Arcade Night", "mood": "loud, playful, bright", "summary": "Neon on near-black.",
+         "palette": [{"role": "background", "hex": "#0b1430"}, {"role": "text", "hex": "#f4f1ea"},
+                     {"role": "accent", "hex": "red"}, {"role": "highlight", "hex": "#ffe066"}],
+         "heading_font": "Press Start 2P", "body_font": "Rubik", "shapes": "Square corners, hard shadows.",
+         "components": "Chunky buttons.", "references": [], "fits": "Makes a break feel like a game."},
+        {"name": "Swiss Grid", "mood": "sharp, clear, technical", "summary": "A strict grid and one red.",
+         "palette": [{"role": "background", "hex": "#ffffff"}, {"role": "text", "hex": "#111111"},
+                     {"role": "accent", "hex": "#d62828"}],
+         "heading_font": "Manrope", "body_font": "Inter", "shapes": "No corners, thin rules.",
+         "components": "Text buttons.", "references": [], "fits": "Shows the time and nothing else."},
+    ],
+    "recommended": 0,
+}
+
 session = "sess-1"
 if noise := os.environ.get("FAKE_CLAUDE_NOISE"):
     sys.stderr.write("w" * int(noise))  # more than a pipe holds, so nobody reading it would hang us
@@ -69,7 +94,13 @@ if os.environ.get("FAKE_CLAUDE_FAIL"):
 
 schema = args[args.index("--json-schema") + 1] if "--json-schema" in args else ""
 
-if '"ideas"' in schema:
+if '"directions"' in schema:
+    styles = json.loads(os.environ.get("FAKE_CLAUDE_STYLES", json.dumps(DEFAULT_STYLES)))
+    emit({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "WebSearch", "input": {"query": "site:dribbble.com focus timer"}},
+    ]}})
+    result(json.dumps(styles), styles)
+elif '"ideas"' in schema:
     ideas = json.loads(os.environ.get("FAKE_CLAUDE_IDEAS", json.dumps(DEFAULT_IDEAS)))
     emit({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Skill", "input": {"skill": "ideator-skills:brainstorm"}},

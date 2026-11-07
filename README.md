@@ -48,6 +48,22 @@ idearen also says who should start each idea, **→ backren** or **→ frontren*
 
 **Give to frontren** (or backren) hands an idea over as the next task, and a sticky note flies to that desk; **or to …** gives it to the other developer instead. idearen only reads files and may use web search, so it can think while the others work. Asking again continues its conversation, so you get new ideas instead of the same ones.
 
+### Styles from frontren
+
+Before frontren builds an interface, let it propose a look. Write what the product is and who it is for under **Style from frontren**, or leave it empty for the current project, attach screenshots you like from Pinterest, Dribbble or anywhere, and press **Show styles**. frontren looks at your files, the project and a few design galleries on the web, then proposes three directions that differ in mood. Each has a palette, a heading and a body font from Google Fonts, shapes, components, the references it used and why it fits, and its card shows a small preview in those colors and fonts.
+
+![frontren's three style directions, each with a palette, fonts and a preview](docs/styles.png)
+
+**Choose** writes that direction into the project's `DESIGN.md`, which frontren follows from then on; edit the file to adjust the style. Looking for styles only reads, so backren can work meanwhile. Asking again gives new directions rather than the same ones.
+
+**Figma.** frontren reads Figma designs when your Claude Code has Figma connected: the Figma connector of your Claude account, or this command and then `/mcp` in Claude Code to sign in:
+
+```bash
+claude mcp add --transport http figma https://mcp.figma.com/mcp
+```
+
+Put a figma.com link in a task or a style brief, and frontren builds from that design instead of drawing from scratch. It gets only Figma's reading tools, never the ones that change your files. Figma limits these calls on its free plan.
+
 ### Autopilot
 
 Turn on **Autopilot** and the loop runs by itself: new ideas send the recommended one to the developer idearen picked when the office is free, the developer finishes, the reviewer is called, and rejected work goes back for fixes, up to the round limit you set. It stops when checkren approves, when the limit is reached, on an error, or when you press Stop. Accepting the work always stays with you. The **AUTO** sign above the door lights up while it runs.
@@ -93,6 +109,7 @@ Each agent has its own skills: Claude Code skills, loaded only into that agent's
 | `frontend-design` | Gives the interface a distinct, deliberate look instead of a template ([Anthropic's skill](https://github.com/anthropics/skills), Apache 2.0) |
 | `frontend-ui` | Builds pages and components: semantic, responsive, accessible, safe rendering |
 | `frontend-verify` | Opens the app in a real browser at desktop and phone sizes |
+| `design-directions` | Finds references and proposes distinct styles to choose from |
 
 | checkren (reviewer) | What it does |
 |---|---|
@@ -144,7 +161,7 @@ To work on an existing repository, such as your team's, open your clone as a pro
 | `--no-bash` | do not let the developers run shell commands; checks from `.ai-review.toml` are skipped too, since the developers can edit that file |
 | `--no-skills` | run the agents without the office's skills |
 
-**Safety.** The developers can run commands on your computer; `--no-bash` turns that off. The idea maker may read web pages, so its briefs are untrusted text: each brief tells the developer to stay in the project folder and not to download, install or send anything, but that is an instruction, not a sandbox. With the autopilot on, a brief reaches a developer before you read it; use `--no-bash` or keep the autopilot off when that matters. Because the developers can run commands, the server listens only on `127.0.0.1` and rejects requests from other sites: it checks `Host` and `Origin` and accepts only JSON. The page opens only by `localhost`, by the address given to `--host`, or by a name given to `--allow-host`; any other name is refused, so a site that points its own domain at your computer gets nothing. Do not expose it to a network unless you need to.
+**Safety.** The developers can run commands on your computer; `--no-bash` turns that off. The idea maker may read web pages, so its briefs are untrusted text: each brief tells the developer to stay in the project folder and not to download, install or send anything, but that is an instruction, not a sandbox. frontren reads web pages too when it looks for styles; you see a direction before you choose it, and frontren takes only the look from `DESIGN.md`. With the autopilot on, a brief reaches a developer before you read it; use `--no-bash` or keep the autopilot off when that matters. Because the developers can run commands, the server listens only on `127.0.0.1` and rejects requests from other sites: it checks `Host` and `Origin` and accepts only JSON. The page opens only by `localhost`, by the address given to `--host`, or by a name given to `--allow-host`; any other name is refused, so a site that points its own domain at your computer gets nothing. Do not expose it to a network unless you need to.
 
 **Limits.** Each task and each review uses your subscription limits. The bars in the header show how much of the 5-hour and the weekly limit is used, as Claude Code reports it. To fill them at start, the office makes one tiny request to the smallest model (about 1,500 tokens); after that every agent run updates them, and a click on them checks again. Hover over a bar to see when it resets. `/usage` in Claude Code shows the same. The dollar amount next to them is Claude Code's estimate, not a charge.
 
@@ -153,6 +170,7 @@ To work on an existing repository, such as your team's, open your clone as a pro
 - **Failing checks skip the model review.** If the project's checks fail, the work goes back with their output right away, without a reviewer run: the code will change anyway. Turn this off with `fast_fail = false` in `.ai-review.toml`.
 - **New files are sent once.** Their content is already in the diff, so it is not repeated in the review prompt.
 - **A re-review gets the previous notes** and the developer's reply to them, and checks each one instead of starting from scratch.
+- **No MCP servers you don't need.** Claude Code connects every MCP server you set up, and their tool descriptions fill each run's context. The agents run without them (`--strict-mcp-config`), except frontren, which gets Figma's reading tools.
 - **Caches stay out.** `__pycache__`, `node_modules`, virtualenvs and the like go into the repository's local exclude file, so they are never reviewed or committed.
 - The reviewer starts fresh for each review and only reads files; each developer keeps its own conversation, so fixes do not repeat context.
 
@@ -213,6 +231,7 @@ office/
   agents.py       the office: idea maker, two developers, reviewer, autopilot, skills, git snapshots, its memory
   projects.py     the project list and the project the office has open
   ideator.py      the idea maker's prompt and the schema of its ideas
+  designer.py     frontren's style directions and DESIGN.md
   i18n.py         English and Russian texts of the office
   server.py       HTTP server and the event stream (SSE) for the page
   skills/         the agents' skills as Claude Code plugins
