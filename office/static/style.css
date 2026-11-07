@@ -260,6 +260,14 @@ h2 { font-size: 18px; }
     linear-gradient(#2b2433, #2b2433) 6px 0 / 3px 3px no-repeat,
     linear-gradient(#2b2433, #2b2433) 3px 3px / 3px 3px no-repeat;
 }
+/* at most three lines (two on a phone), so a long one never covers the desks behind it */
+.bubble-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
 .bubble.pop { animation: pop 0.2s steps(2); }
 .agent[data-agent="backend"] .bubble { border-color: var(--backend-dark); }
 .agent[data-agent="frontend"] .bubble { border-color: var(--frontend-dark); }
@@ -834,6 +842,7 @@ form.dropping { outline: 3px dashed var(--focus); outline-offset: -6px; }
 @media (max-width: 560px) {
   .room { padding: 3px; }
   .bubble { max-width: 40%; padding: 3px 5px; font: 12px/1.2 var(--pixel-font); border-width: 2px; }
+  .bubble-text { -webkit-line-clamp: 2; line-clamp: 2; }
   .nameplate { padding: 2px 5px; gap: 4px; }
   .nameplate .status-text { display: none; }
   /* four bubbles do not fit a phone-sized room: only agents at work speak; the monitors show the rest */

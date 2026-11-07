@@ -347,12 +347,15 @@ function renderPlates() {
   if (drawerAgent) renderDrawer();
 }
 
-function setText(el, text) {
-  if (el.textContent !== text) {
-    el.textContent = text;
-    el.classList.remove("pop");
-    void el.offsetWidth; // restart the animation
-    el.classList.add("pop");
+// A bubble shows the start of what the agent says; the log and its drawer have all of it.
+function setBubble(agent, text) {
+  const bubble = $(`bubble-${agent}`);
+  const line = bubble.firstElementChild;
+  if (line.textContent !== text) {
+    line.textContent = text;
+    bubble.classList.remove("pop");
+    void bubble.offsetWidth; // restart the animation
+    bubble.classList.add("pop");
   }
 }
 
@@ -380,7 +383,7 @@ function render(s) {
     const a = s.agents[agent];
     if (!a) continue;
     $(`desk-${agent}`).dataset.status = a.status;
-    setText($(`bubble-${agent}`), a.bubble.replace(/`/g, ""));
+    setBubble(agent, a.bubble.replace(/`/g, ""));
     $(`status-${agent}`).textContent = statusText(agent, a.status);
   }
 
