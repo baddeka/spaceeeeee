@@ -74,6 +74,15 @@ def test_choosing_a_style_writes_design_md(fake_claude, tmp_path):  # noqa: F811
     assert office._log[-1]["text"] == "Chose the style “Swiss Grid” for DESIGN.md"
 
 
+def test_a_design_md_that_cannot_be_written_is_reported(fake_claude, tmp_path):  # noqa: F811
+    office = styled(tmp_path)
+    (tmp_path / "ws" / DESIGN_FILE).mkdir()  # in the way, like a file another program holds
+
+    with pytest.raises(ValueError, match="Could not write DESIGN.md"):
+        office.choose_style(0)
+    assert office.styles["chosen"] is None
+
+
 def test_design_md_keeps_the_color_table_whole(fake_claude, tmp_path):  # noqa: F811
     office = styled(tmp_path)
 

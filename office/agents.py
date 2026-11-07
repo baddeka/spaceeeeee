@@ -904,7 +904,10 @@ class Office:
             self._busy_check()
             direction = self.styles["directions"][n]
             # A project file: the developers build from it, and checkren sees it in the change.
-            _write_file(self.workspace / DESIGN_FILE, design_md(direction))
+            try:
+                _write_file(self.workspace / DESIGN_FILE, design_md(direction))
+            except OSError as e:  # say, the file is open in an editor that locks it (Windows)
+                raise ValueError(self._t("design_not_saved", error=e.strerror or e)) from None
             self.styles["chosen"] = n
             if self.agents["frontend"]["status"] != "thinking":
                 self._phrase("frontend", "style_chosen", name=_shorten(direction["name"], 40))
@@ -948,16 +951,25 @@ class Office:
         if len(content) > MAX_UPLOAD_BYTES:
             raise ValueError(self._t("upload_too_big", mb=MAX_UPLOAD_BYTES // 2**20))
         folder = self.workspace / UPLOADS_DIR
-        folder.mkdir(parents=True, exist_ok=True)
         stem, suffix = os.path.splitext(safe_file_name(name))
-        for n in itertools.count(1):
-            target = folder / (f"{stem}{suffix}" if n == 1 else f"{stem} ({n}){suffix}")
-            try:
-                with target.open("xb") as f:  # never replaces a file, not even with two uploads at once
-                    f.write(content)
-            except FileExistsError:
-                continue
-            return target.name
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            for n in itertools.count(1):
+                target = folder / (f"{stem}{suffix}" if n == 1 else f"{stem} ({n}){suffix}")
+                try:
+                    file = target.open("xb")  # never replaces a file, not even with two uploads at once
+                except FileExistsError:
+                    continue
+                try:
+                    with file:
+                        file.write(content)
+                except OSError:
+                    target.unlink(missing_ok=True)  # half a file would pass for the whole one
+                    raise
+                return target.name
+        except OSError as e:
+            # A full disk or a locked folder: the page says so instead of a server error.
+            raise ValueError(self._t("upload_failed", name=stem + suffix, error=e.strerror or e)) from None
 
     def _attachments(self, files) -> list[Path]:
         """The uploaded files a task or a topic names, each checked to be in the uploads folder."""
@@ -1027,7 +1039,8 @@ class Office:
         """Takes the next step of the work -> review -> fixes loop, if the autopilot is on."""
         with self._lock:
             pilot = self.autopilot
-            if not pilot["enabled"] or pilot["halted"] or self.task is None or self._building():
+            # A closed office starts nothing: a run that ends as it closes must not set off the next one.
+            if not pilot["enabled"] or pilot["halted"] or self.task is None or self._building() or self._closed:
                 return
             verdict = self.verdict
             if verdict is None or verdict.get("sent"):
@@ -1064,7 +1077,10 @@ class Office:
     def _autopilot_handoff(self) -> None:
         """With the autopilot on, fresh ideas go to the developer when the office is free."""
         with self._lock:
-            if not self.autopilot["enabled"] or not self.ideas or self.task is not None or self._building():
+            if (
+                not self.autopilot["enabled"] or not self.ideas or self.task is not None
+                or self._building() or self._closed
+            ):
                 return
             best = next((n for n, i in enumerate(self.ideas) if i["recommended"] and not i["handed"]), None)
             if best is None or self.agents[self.ideas[best]["developer"]]["status"] == "thinking":

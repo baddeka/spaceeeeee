@@ -122,6 +122,22 @@ def test_one_developer_works_at_a_time(fake_claude, tmp_path, monkeypatch):  # n
     assert office.agents["backend"]["status"] == "idle"
 
 
+def test_a_closed_office_takes_no_autopilot_step(fake_claude, tmp_path, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("FAKE_CLAUDE_REVIEW", MAJOR)
+    office = Office(tmp_path / "ws")
+    office.start_task("Make a page", "frontend")
+    office.wait_idle()
+    office.request_review()
+    office.wait_idle()
+    office.close()
+
+    office.set_autopilot(True, max_rounds=3)  # the notes would go back to frontren
+    office.wait_idle()
+
+    assert not office.verdict.get("sent")
+    assert not any(e["kind"] == "handoff" for e in office._log)
+
+
 def test_only_developers_and_the_idea_maker_can_be_stopped(tmp_path):
     with pytest.raises(ValueError, match="Only backren, frontren and idearen"):
         Office(tmp_path / "ws").stop("reviewer")

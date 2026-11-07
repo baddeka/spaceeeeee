@@ -2,6 +2,7 @@
 
 import base64
 import json
+from pathlib import Path
 
 import pytest
 
@@ -45,6 +46,39 @@ def test_uploads_must_be_readable_and_not_too_big(tmp_path, monkeypatch):
     monkeypatch.setattr(agents, "MAX_UPLOAD_BYTES", 3)
     with pytest.raises(ValueError):
         office.save_upload("x.txt", b64(b"four"))
+
+
+def test_an_upload_the_disk_refuses_is_reported_not_crashed(tmp_path):
+    office = Office(tmp_path / "ws")
+    (tmp_path / "ws" / UPLOADS_DIR).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "ws" / UPLOADS_DIR).write_text("a file where the folder should be")
+
+    with pytest.raises(ValueError, match="Could not save design.png"):
+        office.save_upload("design.png", b64(b"x"))
+
+
+def test_a_failed_write_leaves_no_half_file(tmp_path, monkeypatch):
+    office = Office(tmp_path / "ws")
+
+    class Full:
+        def __init__(self, *args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def write(self, data):
+            raise OSError(28, "No space left on device")
+
+    real_open = Path.open
+    monkeypatch.setattr(Path, "open", lambda self, mode="r", *a, **k: (real_open(self, mode, *a, **k).close(), Full())[1]
+                        if mode == "xb" else real_open(self, mode, *a, **k))
+    with pytest.raises(ValueError, match="No space left on device"):
+        office.save_upload("design.png", b64(b"x"))
+    assert not list((tmp_path / "ws" / UPLOADS_DIR).iterdir())
 
 
 def test_the_developer_gets_the_attached_files(fake_claude, tmp_path):

@@ -149,6 +149,8 @@ MESSAGES = {
         "log_style_chosen": "Chose the style “{name}” for DESIGN.md",
         "no_styles": "Ask frontren for styles first",
         "bad_style": "There is no such style",
+        "design_not_saved": "Could not write DESIGN.md: {error}",
+        "upload_failed": "Could not save {name}: {error}",
         # idea maker
         "ideator_waiting": "Give me a topic",
         "ideator_thinking": "Thinking about “{topic}”",
@@ -303,6 +305,8 @@ MESSAGES = {
         "log_style_chosen": "Выбран стиль «{name}» для DESIGN.md",
         "no_styles": "Сначала попроси frontren предложить стили",
         "bad_style": "Нет такого стиля",
+        "design_not_saved": "Не удалось записать DESIGN.md: {error}",
+        "upload_failed": "Не удалось сохранить {name}: {error}",
         "ideator_waiting": "Дай мне тему",
         "ideator_thinking": "Думаю над темой «{topic}»",
         "ideas_ready": "Идей готово: {count}",
