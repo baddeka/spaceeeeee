@@ -24,6 +24,15 @@ FIGMA_READ_TOOLS = (
 )
 FIGMA_TOOLS = [f"mcp__{server}__{tool}" for server in FIGMA_SERVERS for tool in FIGMA_READ_TOOLS]
 
+
+def figma_tools(*texts: str | None) -> list[str] | None:
+    """Figma's tools for a run whose request has a figma.com link, else none.
+
+    A run given MCP tools connects every MCP server the user set up, whose tool descriptions all
+    take up its context, so only a run that has a design to read pays for that.
+    """
+    return FIGMA_TOOLS if any("figma.com/" in (text or "").lower() for text in texts) else None
+
 DESIGN_FILE = "DESIGN.md"
 
 STYLE_PROMPT = """\

@@ -24,12 +24,12 @@ from reviewer.processes import kill_tree
 
 from .designer import (
     DESIGN_FILE,
-    FIGMA_TOOLS,
     STYLE_PROMPT,
     STYLE_TOOLS,
     StylesError,
     StylesOutput,
     design_md,
+    figma_tools,
     parse_styles,
     style_request,
 )
@@ -49,9 +49,8 @@ ROLES = (*DEVELOPERS, "reviewer", "ideator")
 NAMES = {"backend": "backren", "frontend": "frontren", "reviewer": "checkren", "ideator": "idearen"}
 
 DEVELOPER_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Skill"]
-# frontren also looks for design references on the web, and reads designs in Figma when it is connected.
+# frontren also looks for design references on the web, and reads Figma designs when a task links one.
 EXTRA_TOOLS = {"backend": [], "frontend": ["WebSearch", "WebFetch"]}
-MCP_TOOLS = {"backend": None, "frontend": FIGMA_TOOLS}
 
 # Each role's skills are Claude Code plugins, loaded only into that role's runs.
 SKILLS_DIR = Path(__file__).parent / "skills"
@@ -124,7 +123,7 @@ LOCAL_EXCLUDES = [
 
 # The office's own folder in a project, excluded above, so never committed or reviewed: what it
 # remembers between starts, and the files the user hands the agents. The agents get those files'
-# paths, and the developer copies in what the project needs.
+# paths, and the developers copy in what the project needs.
 OFFICE_DIR = Path(".rens-office")
 UPLOADS_DIR = OFFICE_DIR / "uploads"
 STATE_FILE = OFFICE_DIR / "state.json"
@@ -882,7 +881,7 @@ class Office:
                 effort=self._effort("frontend"),
                 persist_session=False,
                 plugin_dirs=self._plugin_dirs["frontend"],
-                mcp_tools=FIGMA_TOOLS,
+                mcp_tools=figma_tools(brief, self.task),
             )
             if self._closed:
                 run.stop()
@@ -1113,7 +1112,8 @@ class Office:
             resume=desk.session_id,
             accept_edits=True,
             plugin_dirs=self._plugin_dirs[developer],
-            mcp_tools=MCP_TOOLS[developer],
+            # A rework's notes don't repeat the link, but the task it fixes does.
+            mcp_tools=figma_tools(prompt, self.task) if developer == "frontend" else None,
         )
         if self._closed:
             desk.run.stop()

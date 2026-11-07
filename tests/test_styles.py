@@ -33,8 +33,7 @@ def test_frontren_proposes_styles_and_changes_nothing(fake_claude, tmp_path):  #
     assert "a pomodoro timer for students" in call["prompt"]
     assert "--no-session-persistence" in call["args"]
     assert str(SKILLS_DIR / "frontend") in all_args(call, "--plugin-dir")
-    assert "mcp__figma__get_design_context" in call["args"] and "mcp__figma__use_figma" not in call["args"]
-    assert "--strict-mcp-config" not in call["args"]
+    assert "--strict-mcp-config" in call["args"]  # no Figma link, so no MCP servers
     assert [d["name"] for d in office.styles["directions"]] == ["Calm Paper", "Arcade Night", "Swiss Grid"]
     assert (office.styles["recommended"], office.styles["chosen"]) == (0, None)
     assert office.agents["frontend"]["status"] == "idle"
@@ -169,22 +168,43 @@ def test_styles_survive_a_reopen(fake_claude, tmp_path):  # noqa: F811
     assert again.styles == office.styles
 
 
-def test_only_frontren_gets_mcp_servers(fake_claude, tmp_path, monkeypatch):  # noqa: F811
-    monkeypatch.setenv("FAKE_CLAUDE_REVIEW", json.dumps({"summary": "fine", "issues": []}))
+FIGMA_LINK = "https://www.figma.com/design/AbC123/Timer?node-id=1-2"
+
+
+def test_only_a_figma_link_brings_frontren_its_mcp_servers(fake_claude, tmp_path, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("FAKE_CLAUDE_REVIEW", MAJOR)
     office = Office(tmp_path / "ws")
-    office.start_task("Add an API")
-    office.wait_idle()
     office.start_task("Make a page", "frontend")
+    office.wait_idle()
+    office.start_task(f"Make the page from {FIGMA_LINK}", "frontend")
     office.wait_idle()
     office.request_review()
     office.wait_idle()
-    office.generate_ideas("x")
+    office.send_rework()
+    office.wait_idle()
+    office.propose_styles(f"like {FIGMA_LINK}")
     office.wait_idle()
 
     calls = fake_claude()
-    backend, frontend = work(calls)[:2]
-    assert "--strict-mcp-config" in backend["args"]
-    assert "--strict-mcp-config" not in frontend["args"] and "mcp__claude_ai_Figma__get_screenshot" in frontend["args"]
+    plain, linked, rework = work(calls)
+    assert "--strict-mcp-config" in plain["args"]
+    for call in (linked, rework, style_calls(calls)[0]):  # a rework's notes don't repeat the link
+        assert "--strict-mcp-config" not in call["args"]
+        assert "mcp__claude_ai_Figma__get_screenshot" in call["args"] and "mcp__figma__use_figma" not in call["args"]
+
+
+def test_the_other_agents_never_get_mcp_servers(fake_claude, tmp_path, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("FAKE_CLAUDE_REVIEW", json.dumps({"summary": "fine", "issues": []}))
+    office = Office(tmp_path / "ws")
+    office.start_task(f"Add an API for {FIGMA_LINK}")
+    office.wait_idle()
+    office.request_review()
+    office.wait_idle()
+    office.generate_ideas(FIGMA_LINK)
+    office.wait_idle()
+
+    calls = fake_claude()
+    assert "--strict-mcp-config" in work(calls)[0]["args"]
     assert "--strict-mcp-config" in reviews(calls)[0]["args"]
     assert all("--strict-mcp-config" in c["args"] for c in calls if '"ideas"' in " ".join(c["args"]))
 

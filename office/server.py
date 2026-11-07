@@ -222,7 +222,7 @@ def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="ai-office",
-        description="Three Claude agents in an office: one comes up with ideas, one writes code, one reviews it.",
+        description="Four Claude agents in an office: one comes up with ideas, two build them, one reviews the work.",
     )
     p.add_argument(
         "--projects",

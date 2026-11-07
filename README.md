@@ -62,7 +62,7 @@ Before frontren builds an interface, let it propose a look. Write what the produ
 claude mcp add --transport http figma https://mcp.figma.com/mcp
 ```
 
-Put a figma.com link in a task or a style brief, and frontren builds from that design instead of drawing from scratch. It gets only Figma's reading tools, never the ones that change your files. Figma limits these calls on its free plan.
+Put a figma.com link in a task or a style brief, and frontren builds from that design instead of drawing from scratch. Only such a run connects to Figma, and it gets only Figma's reading tools, never the ones that change your files. Figma limits these calls on its free plan.
 
 ### Autopilot
 
@@ -170,7 +170,7 @@ To work on an existing repository, such as your team's, open your clone as a pro
 - **Failing checks skip the model review.** If the project's checks fail, the work goes back with their output right away, without a reviewer run: the code will change anyway. Turn this off with `fast_fail = false` in `.ai-review.toml`.
 - **New files are sent once.** Their content is already in the diff, so it is not repeated in the review prompt.
 - **A re-review gets the previous notes** and the developer's reply to them, and checks each one instead of starting from scratch.
-- **No MCP servers you don't need.** Claude Code connects every MCP server you set up, and their tool descriptions fill each run's context. The agents run without them (`--strict-mcp-config`), except frontren, which gets Figma's reading tools.
+- **No MCP servers you don't need.** Claude Code connects every MCP server you set up, and their tool descriptions fill each run's context. The agents run without them (`--strict-mcp-config`); only a frontren run with a figma.com link gets the servers, and of their tools only Figma's reading ones.
 - **Caches stay out.** `__pycache__`, `node_modules`, virtualenvs and the like go into the repository's local exclude file, so they are never reviewed or committed.
 - The reviewer starts fresh for each review and only reads files; each developer keeps its own conversation, so fixes do not repeat context.
 
