@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from office.agents import SKILLS_DIR, Busy, Office
+from office.agents import SKILLS_DIR, STATE_FILE, Busy, Office
 from office.i18n import MESSAGES
 from office.ideator import IdeasError, parse_ideas
 
@@ -25,7 +25,7 @@ def ideator_calls(calls):
     return [c for c in calls if '"ideas"' in schema_of(c)]
 
 
-def worker_calls(calls):
+def dev_calls(calls):
     return [c for c in calls if not schema_of(c)]
 
 
@@ -34,7 +34,7 @@ def arg(call, flag):
 
 
 def idea(title="T", scope="small"):
-    return {"title": title, "pitch": "p", "why": "w", "scope": scope, "task": "do it"}
+    return {"title": title, "pitch": "p", "why": "w", "scope": scope, "developer": "backend", "ui": "", "task": "do it"}
 
 
 # ---------- parsing ----------
@@ -145,12 +145,15 @@ def test_handing_off_gives_the_developer_the_brief(fake_claude, tmp_path):
     office.hand_off(1)
     office.wait_idle()
 
-    prompt = worker_calls(fake_claude())[0]["prompt"]
+    call = dev_calls(fake_claude())[0]
+    prompt = call["prompt"]
     assert prompt.startswith("Idea from idearen: Focus timer page")
     assert "Build index.html with a 25/5 timer" in prompt
+    assert "Interface:\nOne screen: a big countdown ring." in prompt
     assert "not from the user" in prompt  # the brief may carry text from the web
+    assert "You are frontren" in arg(call, "--append-system-prompt")  # idearen picked the frontend
     assert office.ideas[1]["handed"] and not office.ideas[0]["handed"]
-    assert office.agents["ideator"]["bubble"] == "Handed to coderen: Focus timer page"
+    assert office.agents["ideator"]["bubble"] == "Handed to frontren: Focus timer page"
     assert any(e["agent"] == "ideator" and e["kind"] == "handoff" for e in office._log)
 
     office.accept()
@@ -169,9 +172,33 @@ def test_hand_off_errors(fake_claude, tmp_path):
         with pytest.raises(ValueError):
             office.hand_off(bad)
 
-    office.agents["worker"]["status"] = "working"
+    office.agents["backend"]["status"] = "working"
     with pytest.raises(Busy):
         office.hand_off(0)
+
+
+def test_an_idea_can_go_to_the_other_developer(fake_claude, tmp_path):
+    office = Office(tmp_path / "ws")
+    office.generate_ideas("productivity")
+    office.wait_idle()
+
+    office.hand_off(1, "backend")
+    office.wait_idle()
+
+    assert "You are backren" in arg(dev_calls(fake_claude())[0], "--append-system-prompt")
+    assert office.owner == "backend" and office.ideas[1]["developer"] == "backend"
+    assert office.agents["ideator"]["bubble"] == "Handed to backren: Focus timer page"
+
+
+def test_ideas_saved_before_two_developers_still_open(tmp_path):
+    folder = tmp_path / "ws"
+    (folder / STATE_FILE).parent.mkdir(parents=True)
+    old = {"title": "Old", "pitch": "p", "why": "w", "scope": "small", "task": "t", "recommended": True, "handed": False}
+    (folder / STATE_FILE).write_text(json.dumps({"topic": "x", "ideas": [old, {**old, "developer": "designer"}]}))
+
+    office = Office(folder)
+
+    assert office.ideas == [{**old, "developer": "backend", "ui": ""}]
 
 
 def test_stopping_the_idea_maker_when_it_is_idle(tmp_path):
@@ -191,7 +218,7 @@ def test_autopilot_builds_the_recommended_idea(fake_claude, tmp_path, monkeypatc
     office.wait_idle(30)
 
     calls = fake_claude()
-    assert "25/5 timer" in worker_calls(calls)[0]["prompt"]
+    assert "25/5 timer" in dev_calls(calls)[0]["prompt"]
     assert office.ideas[1]["handed"]
     assert office.autopilot["halted"] == "approved"
     assert any("recommended idea" in e["text"] for e in office._log)
@@ -237,10 +264,14 @@ def test_http_ideas_and_handoff(fake_claude, server):  # noqa: F811
     office.wait_idle()
     status, body = request(base + "/api/handoff", "POST", {"index": 0}, json_header)
     assert status == 200
-    assert json.loads(body)["agents"]["worker"]["status"] == "working"
+    assert json.loads(body)["agents"]["backend"]["status"] == "working"
     office.wait_idle()
-    status, _ = request(base + "/api/handoff", "POST", {"index": 9}, json_header)
-    assert status == 400
+    status, body = request(base + "/api/handoff", "POST", {"index": 2, "developer": "frontend"}, json_header)
+    assert status == 200
+    assert json.loads(body)["agents"]["frontend"]["status"] == "working"
+    office.wait_idle()
+    assert request(base + "/api/handoff", "POST", {"index": 9}, json_header)[0] == 400
+    assert request(base + "/api/handoff", "POST", {"index": 1, "developer": "boss"}, json_header)[0] == 400
 
 
 def test_agents_know_their_names(fake_claude, tmp_path, monkeypatch):
@@ -255,6 +286,6 @@ def test_agents_know_their_names(fake_claude, tmp_path, monkeypatch):
 
     calls = fake_claude()
     assert "You are idearen" in arg(ideator_calls(calls)[0], "--system-prompt")
-    assert "You are coderen" in arg(worker_calls(calls)[0], "--append-system-prompt")
+    assert "You are backren" in arg(dev_calls(calls)[0], "--append-system-prompt")
     review = next(c for c in calls if schema_of(c) and '"ideas"' not in schema_of(c))
     assert "you are checkren" in review["prompt"]

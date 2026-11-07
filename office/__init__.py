@@ -1,1 +1,1 @@
-"""Web office with a worker agent and a reviewer agent."""
+"""Web office with an idea maker, two developers (backend and frontend) and a reviewer."""

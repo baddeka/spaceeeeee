@@ -17,8 +17,10 @@
   --muted: #75695a;
   --ink: #2b2433;
   --shadow: #2b2433;
-  --worker: #3b7bd9;
-  --worker-dark: #2c5fae;
+  --backend: #3b7bd9;
+  --backend-dark: #2c5fae;
+  --frontend: #e0508a;
+  --frontend-dark: #b8386c;
   --reviewer: #8b55d6;
   --reviewer-dark: #6a3fae;
   --ideator: #2f9e78;
@@ -117,7 +119,7 @@ h2 { font-size: 18px; }
     linear-gradient(var(--ink), var(--ink)) 7px 8px / 4px 6px no-repeat,
     linear-gradient(var(--ink), var(--ink)) 15px 8px / 4px 6px no-repeat,
     linear-gradient(var(--ink), var(--ink)) 7px 18px / 12px 3px no-repeat,
-    linear-gradient(135deg, var(--worker) 50%, var(--reviewer) 50%);
+    linear-gradient(135deg, var(--backend) 50%, var(--frontend) 50%);
   image-rendering: pixelated;
 }
 
@@ -259,7 +261,10 @@ h2 { font-size: 18px; }
     linear-gradient(#2b2433, #2b2433) 3px 3px / 3px 3px no-repeat;
 }
 .bubble.pop { animation: pop 0.2s steps(2); }
-.agent[data-agent="worker"] .bubble { border-color: var(--worker-dark); }
+.agent[data-agent="backend"] .bubble { border-color: var(--backend-dark); }
+.agent[data-agent="frontend"] .bubble { border-color: var(--frontend-dark); }
+/* the two front desks stand close together, so their bubbles stay narrow enough not to meet */
+.agent[data-agent="frontend"] .bubble, .agent[data-agent="ideator"] .bubble { max-width: 22%; }
 .agent[data-agent="reviewer"] .bubble { border-color: var(--reviewer-dark); }
 .agent[data-agent="ideator"] .bubble { border-color: var(--ideator-dark); }
 /* sleeping agents do not talk; the Zs above their heads say enough */
@@ -329,7 +334,7 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
 .btn:hover:not(:disabled) { filter: brightness(1.06); }
 .btn:active:not(:disabled) { transform: translateY(3px); box-shadow: inset -3px -3px 0 rgb(0 0 0 / 18%), 0 1px 0 var(--edge); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn.primary { --face: var(--worker); --edge: var(--worker-dark); color: #fff; }
+.btn.primary { --face: var(--backend); --edge: var(--backend-dark); color: #fff; }
 .btn.review { --face: var(--reviewer); --edge: var(--reviewer-dark); color: #fff; }
 .btn.ideas-btn { --face: var(--ideator); --edge: var(--ideator-dark); color: #fff; }
 .btn.ok { --face: var(--ok); --edge: var(--ok-dark); color: #fff; }
@@ -410,14 +415,16 @@ textarea:focus-visible, .btn:focus-visible { outline: 3px solid var(--focus); ou
   border: 2px solid var(--ink);
   border-left-width: 6px;
 }
-.feed li[data-agent="worker"] { border-left-color: var(--worker); }
+.feed li[data-agent="backend"] { border-left-color: var(--backend); }
+.feed li[data-agent="frontend"] { border-left-color: var(--frontend); }
 .feed li[data-agent="reviewer"] { border-left-color: var(--reviewer); }
 .feed li[data-agent="user"] { border-left-color: var(--ok); }
 .feed li[data-agent="office"] { border-left-color: var(--warn); }
 .feed li[data-agent="ideator"] { border-left-color: var(--ideator); }
 .feed li[data-agent="ideator"][data-kind="skill"] .text { color: var(--ideator); }
 .feed li[data-kind="skill"] .text { font-weight: 600; color: var(--reviewer); }
-.feed li[data-agent="worker"][data-kind="skill"] .text { color: var(--worker); }
+.feed li[data-agent="backend"][data-kind="skill"] .text { color: var(--backend); }
+.feed li[data-agent="frontend"][data-kind="skill"] .text { color: var(--frontend); }
 .feed li[data-kind="error"] { border-left-color: var(--bad); }
 .feed .who { display: block; font: 13px/1.4 var(--pixel-font); letter-spacing: 0.04em; color: var(--muted); }
 .feed .text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -519,7 +526,41 @@ code {
   background: var(--panel);
   border: 2px dashed color-mix(in srgb, var(--ink) 35%, transparent);
 }
-.idea-handoff { margin-top: auto; align-self: flex-start; }
+.idea-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; }
+.idea-handoff.main { --face: var(--backend); --edge: var(--backend-dark); color: #fff; }
+.idea-handoff.main[data-developer="frontend"] { --face: var(--frontend); --edge: var(--frontend-dark); }
+.idea-handoff.other { padding: 6px 10px 5px; font-size: 13px; }
+.idea .ui-brief { border-style: dotted; }
+.idea .ui-brief strong { color: var(--frontend-dark); }
+.dev-tag {
+  padding: 2px 6px 1px;
+  font: 12px/1.3 var(--pixel-font);
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--backend);
+  border: 2px solid var(--ink);
+}
+.dev-tag[data-developer="frontend"] { background: var(--frontend); }
+
+/* ---------- who gets the task ---------- */
+
+.task-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.task-head label { font: 17px/1.2 var(--pixel-font); letter-spacing: 0.05em; }
+.dev-switch { display: inline-flex; border: 2px solid var(--ink); }
+.dev-switch button {
+  padding: 6px 10px 5px;
+  font: 14px/1 var(--pixel-font);
+  letter-spacing: 0.05em;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 0;
+  cursor: pointer;
+}
+.dev-switch button + button { border-left: 2px solid var(--ink); }
+.dev-switch button[aria-pressed="true"] { color: #fff; background: var(--backend); }
+.dev-switch button[data-developer="frontend"][aria-pressed="true"] { background: var(--frontend); }
+.dev-switch button:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.task[data-developer="frontend"] #btn-task { --face: var(--frontend); --edge: var(--frontend-dark); }
 
 /* ---------- language switch ---------- */
 
@@ -610,7 +651,7 @@ body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 body.drawer-open { overflow: hidden; }
 
 .drawer {
-  --accent: var(--worker);
+  --accent: var(--backend);
   position: fixed;
   top: 0;
   right: 0;
@@ -626,6 +667,7 @@ body.drawer-open { overflow: hidden; }
   visibility: hidden;
   transition: transform 0.32s cubic-bezier(0.2, 0.9, 0.2, 1), visibility 0s linear 0.32s;
 }
+.drawer[data-agent="frontend"] { --accent: var(--frontend); }
 .drawer[data-agent="reviewer"] { --accent: var(--reviewer); }
 .drawer[data-agent="ideator"] { --accent: var(--ideator); }
 .drawer[data-status="thinking"] .drawer-status { color: var(--accent); font-weight: 600; }
@@ -748,7 +790,7 @@ form.dropping { outline: 3px dashed var(--focus); outline-offset: -6px; }
   .bubble { max-width: 40%; padding: 3px 5px; font: 12px/1.2 var(--pixel-font); border-width: 2px; }
   .nameplate { padding: 2px 5px; gap: 4px; }
   .nameplate .status-text { display: none; }
-  /* three bubbles do not fit a phone-sized room: only agents at work speak; the monitors show the rest */
+  /* four bubbles do not fit a phone-sized room: only agents at work speak; the monitors show the rest */
   .agent:not([data-status="working"], [data-status="reviewing"], [data-status="thinking"]) .bubble { display: none; }
   .meta .cost { display: none; }
   /* the switches get their own row under the logo */

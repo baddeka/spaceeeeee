@@ -77,7 +77,7 @@ def test_a_task_names_only_uploaded_files(tmp_path, files):
 
     with pytest.raises(ValueError):
         office.start_task("x", files=files)
-    assert office.agents["worker"]["status"] == "idle"
+    assert office.agents["backend"]["status"] == "idle"
 
 
 def test_uploads_are_never_committed_or_reviewed(fake_claude, tmp_path):

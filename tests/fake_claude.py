@@ -3,9 +3,9 @@
 
 Reads FAKE_CLAUDE_LOG (where to append the received args), FAKE_CLAUDE_REVIEW (the review to
 return when called with the review schema), FAKE_CLAUDE_IDEAS (the ideas to return when called
-with the ideas schema), FAKE_CLAUDE_SKILL (a skill the worker loads), FAKE_CLAUDE_FAIL,
+with the ideas schema), FAKE_CLAUDE_SKILL (a skill the developer loads), FAKE_CLAUDE_FAIL,
 FAKE_CLAUDE_NOISE (bytes of stderr to write first), FAKE_CLAUDE_HANG (a file to write the pid
-of a child process to before waiting forever, like a worker running a server) and
+of a child process to before waiting forever, like a developer running a server) and
 FAKE_CLAUDE_RATE_LIMIT (the rate_limit_info of a rate_limit_event to report).
 """
 
@@ -37,13 +37,14 @@ def result(text, structured=None, cost=0.01):
 DEFAULT_IDEAS = {
     "ideas": [
         {"title": "Habit tracker CLI", "pitch": "Track daily habits from the terminal.",
-         "why": "No account, works offline.", "scope": "small",
+         "why": "No account, works offline.", "scope": "small", "developer": "backend", "ui": "",
          "task": "Build habits.py: add, done, and streak commands, stored in a JSON file. Tests for each."},
         {"title": "Focus timer page", "pitch": "A one-page pomodoro timer.",
-         "why": "No ads, works on phones.", "scope": "small",
+         "why": "No ads, works on phones.", "scope": "small", "developer": "frontend",
+         "ui": "One screen: a big countdown ring. Mood: calm, focused, paper-like. Phone first.",
          "task": "Build index.html with a 25/5 timer, start/pause/reset, and a sound at the end."},
         {"title": "Expense splitter", "pitch": "Split shared costs among friends.",
-         "why": "Shows who owes whom in the fewest payments.", "scope": "medium",
+         "why": "Shows who owes whom in the fewest payments.", "scope": "medium", "developer": "backend", "ui": "",
          "task": "Build split.py that reads expenses.csv and prints the minimal set of payments."},
     ],
     "recommended": 1,
@@ -85,7 +86,7 @@ elif args[args.index("--tools") + 1] == "":
 else:
     if skill := os.environ.get("FAKE_CLAUDE_SKILL"):
         emit({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "name": "Skill", "input": {"skill": f"worker-skills:{skill}"}},
+            {"type": "tool_use", "name": "Skill", "input": {"skill": f"developer-skills:{skill}"}},
         ]}})
     Path("app.py").write_text("print('hello')\n")
     emit({"type": "assistant", "message": {"content": [

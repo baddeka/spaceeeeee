@@ -66,26 +66,34 @@
         <div class="stage" id="stage">
           <canvas id="scene" role="img" data-i18n-label="scene_label"></canvas>
 
-          <div class="agent" id="desk-worker" data-agent="worker" data-status="idle">
-            <div class="bubble" id="bubble-worker"></div>
-            <button type="button" class="nameplate" id="plate-worker" data-drawer="worker" data-i18n-title="open_drawer">
-              <span class="dot"></span><strong data-i18n="worker_plate">coderen</strong>
-              <span class="status-text" id="status-worker"></span>
+          <div class="agent" id="desk-backend" data-agent="backend" data-status="idle">
+            <div class="bubble" id="bubble-backend"></div>
+            <button type="button" class="nameplate" id="plate-backend" data-drawer="backend" data-i18n-title="open_drawer">
+              <span class="dot"></span><strong>backren</strong>
+              <span class="status-text" id="status-backend"></span>
             </button>
           </div>
 
           <div class="agent" id="desk-reviewer" data-agent="reviewer" data-status="idle">
             <div class="bubble" id="bubble-reviewer"></div>
             <button type="button" class="nameplate" id="plate-reviewer" data-drawer="reviewer" data-i18n-title="open_drawer">
-              <span class="dot"></span><strong data-i18n="reviewer_plate">checkren</strong>
+              <span class="dot"></span><strong>checkren</strong>
               <span class="status-text" id="status-reviewer"></span>
+            </button>
+          </div>
+
+          <div class="agent" id="desk-frontend" data-agent="frontend" data-status="idle">
+            <div class="bubble" id="bubble-frontend"></div>
+            <button type="button" class="nameplate" id="plate-frontend" data-drawer="frontend" data-i18n-title="open_drawer">
+              <span class="dot"></span><strong>frontren</strong>
+              <span class="status-text" id="status-frontend"></span>
             </button>
           </div>
 
           <div class="agent" id="desk-ideator" data-agent="ideator" data-status="idle">
             <div class="bubble" id="bubble-ideator"></div>
             <button type="button" class="nameplate" id="plate-ideator" data-drawer="ideator" data-i18n-title="open_drawer">
-              <span class="dot"></span><strong data-i18n="ideator_plate">idearen</strong>
+              <span class="dot"></span><strong>idearen</strong>
               <span class="status-text" id="status-ideator"></span>
             </button>
           </div>
@@ -109,9 +117,15 @@
         <ol class="idea-cards" id="idea-cards"></ol>
       </form>
 
-      <form class="panel task" id="task-form">
-        <label for="task-input" data-i18n="task_label">TASK FOR THE DEVELOPER</label>
-        <textarea id="task-input" rows="3" data-i18n-placeholder="task_placeholder"></textarea>
+      <form class="panel task" id="task-form" data-developer="backend">
+        <div class="task-head">
+          <label for="task-input" data-i18n="task_label">TASK FOR</label>
+          <div class="dev-switch" role="group" data-i18n-label="dev_label">
+            <button type="button" data-developer="backend" aria-pressed="true" data-i18n-title="dev_backend_title">backren</button>
+            <button type="button" data-developer="frontend" aria-pressed="false" data-i18n-title="dev_frontend_title">frontren</button>
+          </div>
+        </div>
+        <textarea id="task-input" rows="3"></textarea>
         <div class="files">
           <button type="button" class="btn ghost attach" id="task-attach" data-i18n="btn_attach">Attach files</button>
           <input type="file" id="task-file-input" multiple hidden>
@@ -166,7 +180,7 @@
   </main>
 
   <div class="drawer-backdrop" id="drawer-backdrop"></div>
-  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" data-agent="worker">
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" data-agent="backend">
     <header class="drawer-head">
       <canvas class="portrait" id="drawer-portrait" width="20" height="20" aria-hidden="true"></canvas>
       <div class="drawer-who">

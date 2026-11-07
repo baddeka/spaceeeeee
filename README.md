@@ -4,10 +4,10 @@
 
 Two tools built on Claude that run on a **Claude subscription (Pro or Max), with no API key**:
 
-- **Rens Office** is a pixel-art web office with three agents: **idearen** proposes what to build on a topic you give, **coderen** writes the code, and **checkren** reviews it when you ask, or on its own with the autopilot, and sends it back for fixes.
+- **Rens Office** is a pixel-art web office with four agents: **idearen** proposes what to build on a topic you give, **backren** builds the backend (data, APIs, logic), **frontren** builds the frontend (pages, components, style), and **checkren** reviews their work when you ask, or on its own with the autopilot, and sends it back for fixes.
 - **ai-review** is a command-line reviewer: it checks a diff, gives a verdict of APPROVED or CHANGES REQUESTED, and sets the exit code for CI.
 
-![Rens Office by day: idearen, coderen and checkren at their desks, ideas on a topic, and the log](docs/office.png)
+![Rens Office by day: backren, checkren, frontren and idearen at their desks, ideas on a topic, and the log](docs/office.png)
 
 ## Install
 
@@ -29,22 +29,28 @@ ai-office
 
 Then open http://127.0.0.1:8000, and create a project or open one (see [Projects](#projects)).
 
-1. **Give task.** coderen, the developer, works in the project's folder: it creates and edits files and runs commands. Its speech bubble and the log show what it is doing right now.
-2. **Call checkren.** checkren, the reviewer, looks at everything coderen changed since the task started, runs the checks from `.ai-review.toml`, and gives a verdict. It can read files but never change them.
-3. **Send back.** The notes go to coderen, who continues the same conversation (`claude --resume`), so it remembers the task and its code.
+1. **Give task.** Pick who gets it above the task, **backren** or **frontren**. The developer works in the project's folder: it creates and edits files and runs commands. Its speech bubble and the log show what it is doing right now.
+2. **Call checkren.** checkren, the reviewer, looks at everything the developers changed since the task started, runs the checks from `.ai-review.toml`, and gives a verdict. It can read files but never change them.
+3. **Send back.** The notes go to the developer who had the task, who continues its own conversation (`claude --resume`), so it remembers the task and its code.
 4. **Accept.** The current state is committed to git, and the next task starts from it.
 
 If the folder does not exist, it is created with a git repository. The office makes its own commits: `office: before task` before the first task and `office: accepted: …` when you accept.
 
+### Two developers
+
+backren and frontren share the project's folder, so one of them works at a time, and each keeps its own conversation. Give backren the API and then frontren the page: until you accept, both are one change for checkren, and the developer who picks up the other's work first hears that developer's report, so frontren learns which endpoints backren made. backren keeps the contract in `API.md`; frontren builds against it, with mock data where an endpoint is still missing, and follows `DESIGN.md` when the project has one.
+
 ### idearen, the idea maker
 
-Write a topic under **Topic for idearen** and press **Get ideas**. idearen looks at the project, loads its skills and proposes 3 to 5 ideas, each with a pitch, why it is worth building, its scope (small, medium or large) and a complete brief for coderen. One is marked recommended.
+Write a topic under **Topic for idearen** and press **Get ideas**. idearen looks at the project, loads its skills and proposes 3 to 5 ideas, each with a pitch, why it is worth building, its scope (small, medium or large) and a complete brief. One is marked recommended.
 
-**Give to coderen** hands an idea over as the next task, and a sticky note flies across the room. idearen only reads files and may use web search, so it can think while the others work. Asking again continues its conversation, so you get new ideas instead of the same ones.
+idearen also says who should start each idea, **→ backren** or **→ frontren**, and describes an idea's interface for frontren: its screens, the main flow, the states and the mood. It leaves the colors and fonts to frontren.
+
+**Give to frontren** (or backren) hands an idea over as the next task, and a sticky note flies to that desk; **or to …** gives it to the other developer instead. idearen only reads files and may use web search, so it can think while the others work. Asking again continues its conversation, so you get new ideas instead of the same ones.
 
 ### Autopilot
 
-Turn on **Autopilot** and the loop runs by itself: new ideas send the recommended one to the developer when the office is free, the developer finishes, the reviewer is called, and rejected work goes back for fixes, up to the round limit you set. It stops when checkren approves, when the limit is reached, on an error, or when you press Stop. Accepting the work always stays with you. The **AUTO** sign above the door lights up while it runs.
+Turn on **Autopilot** and the loop runs by itself: new ideas send the recommended one to the developer idearen picked when the office is free, the developer finishes, the reviewer is called, and rejected work goes back for fixes, up to the round limit you set. It stops when checkren approves, when the limit is reached, on an error, or when you press Stop. Accepting the work always stays with you. The **AUTO** sign above the door lights up while it runs.
 
 ### Day and night
 
@@ -54,13 +60,14 @@ An agent with nothing to do starts resting after a few seconds, each in its own 
 
 | Agent | When it rests |
 |---|---|
-| coderen | listens to music in its headphones, sips coffee, stretches, naps |
+| backren | listens to music in its headphones, sips coffee, stretches, naps |
+| frontren | sketches in a sketchbook, sips coffee, stretches, naps |
 | checkren | reads a book, sips tea, stretches, naps |
 | idearen | daydreams, juggles a ball, sips soda, stretches, naps |
 
 At night the agents with nothing to do fall asleep: their screens go dark and Zs float up. Whoever has work keeps going by the light of the monitor and the desk lamp.
 
-![Rens Office at night: checkren reviews under the desk lamp while coderen sleeps](docs/night.png)
+![Rens Office at night: checkren reviews under the desk lamp while the others sleep](docs/night.png)
 
 ### Skills
 
@@ -68,14 +75,24 @@ Each agent has its own skills: Claude Code skills, loaded only into that agent's
 
 ![The developer's drawer: its skills and recent activity](docs/drawer.png)
 
-| coderen (developer) | What it does |
+| Both developers | What it does |
 |---|---|
 | `test-first` | Writes tests for the behavior first, then code until they pass |
 | `project-setup` | Sets up a new project: layout, dependencies, README, checks |
-| `frontend-ui` | Builds pages and components: semantic, responsive, accessible, safe rendering |
-| `frontend-verify` | Opens the app in a real browser at desktop and phone sizes |
+| `debugging` | Finds the root cause first and keeps its reproduction as a regression test |
 | `address-review` | Works through review notes one by one, with regression tests |
 | `self-check` | Runs the checks and rereads its own diff before handing off |
+
+| backren (backend) | What it does |
+|---|---|
+| `api-design` | Designs the endpoints and keeps `API.md`, the contract frontren builds against |
+| `data-model` | Stores data safely: schema, migrations, parameterized queries, transactions |
+
+| frontren (frontend) | What it does |
+|---|---|
+| `frontend-design` | Gives the interface a distinct, deliberate look instead of a template ([Anthropic's skill](https://github.com/anthropics/skills), Apache 2.0) |
+| `frontend-ui` | Builds pages and components: semantic, responsive, accessible, safe rendering |
+| `frontend-verify` | Opens the app in a real browser at desktop and phone sizes |
 
 | checkren (reviewer) | What it does |
 |---|---|
@@ -90,22 +107,23 @@ Each agent has its own skills: Claude Code skills, loaded only into that agent's
 | `brainstorm` | Generates many raw ideas, then keeps a few distinct, buildable ones |
 | `market-check` | Checks what already exists and finds what is missing |
 | `write-brief` | Writes a brief the developer can build from without questions |
+| `ui-brief` | Describes the screens, flow and mood for frontren, and leaves the style to it |
 
-The skills live in `office/skills/<role>/skills/<name>/SKILL.md`. To add one, create a folder with a `SKILL.md` there; its `description` tells the agent when to use it. A label for the page in each language can go in `office/i18n.py` as `skill_<name>`.
+The skills live in `office/skills/<plugin>/skills/<name>/SKILL.md`, in five plugins: `developer` (both developers), `backend`, `frontend`, `reviewer` and `ideator`. To add one, create a folder with a `SKILL.md` there; its `description` tells the agent when to use it. A label for the page in each language can go in `office/i18n.py` as `skill_<name>`.
 
 ### Files
 
-Give the agents files along with a task or a topic: a design, a brief as a PDF, a data set, a logo. Use **📎 Attach files**, drop them onto the form, or paste a screenshot into the text box (up to 20 MB each). They are kept in the project's `.rens-office/uploads/`, which is never committed or reviewed, and the agent gets their paths and opens them with Read, which shows images and PDFs too. coderen copies into the project only what the project needs.
+Give the agents files along with a task or a topic: a design, a brief as a PDF, a data set, a logo. Use **📎 Attach files**, drop them onto the form, or paste a screenshot into the text box (up to 20 MB each). They are kept in the project's `.rens-office/uploads/`, which is never committed or reviewed, and the agent gets their paths and opens them with Read, which shows images and PDFs too. The developers copy into the project only what the project needs.
 
 ### Model and effort
 
-Each agent's drawer has a **Model** list (Haiku, Sonnet, Opus, Fable) and an **Effort** list (`low` to `max`), so idearen can think on a cheap model while coderen builds on a strong one. A choice applies from the agent's next run and is kept in `~/.rens-office.json`. **auto** means `--model` or `--effort` from the command line, else Claude Code's default; checkren's effort on auto is the project's `effort`, else `high`. If Claude Code answers "You're out of usage credits", that model needs usage credits on your plan: pick another one.
+Each agent's drawer has a **Model** list (Haiku, Sonnet, Opus, Fable) and an **Effort** list (`low` to `max`), so idearen can think on a cheap model while frontren builds on a strong one. A choice applies from the agent's next run and is kept in `~/.rens-office.json`. **auto** means `--model` or `--effort` from the command line, else Claude Code's default; checkren's effort on auto is the project's `effort`, else `high`. If Claude Code answers "You're out of usage credits", that model needs usage credits on your plan: pick another one.
 
 ### Projects
 
 The office opens on the project list. Each project is a folder in `Documents/Rens Projects` (`--projects` picks another folder): create one, open one, or open a folder from elsewhere, and **◂ Projects** in the header goes back to the list once no agent is working. `--workspace DIR` opens a folder right away instead.
 
-A project remembers where it stands. Everything coderen makes stays in the folder with its git history, and the office keeps the rest in the folder's `.rens-office/`, which is never committed: the task, the verdict, idearen's ideas, the log and the tasks accepted so far, plus `summary.md`, a page to read on where the project is. Reopen it and all of it is back. coderen then starts a new conversation that gets the list of accepted tasks, and for a rework the current task too; idearen is told which ideas it already gave. A new conversation with these notes costs less than resuming a long one, and it works after the folder moves to another computer.
+A project remembers where it stands. Everything the developers make stays in the folder with its git history, and the office keeps the rest in the folder's `.rens-office/`, which is never committed: the task, the verdict, idearen's ideas, the log and the tasks accepted so far, plus `summary.md`, a page to read on where the project is. Reopen it and all of it is back. Each developer then starts a new conversation that gets the list of accepted tasks, and for a rework the current task too; idearen is told which ideas it already gave. A new conversation with these notes costs less than resuming a long one, and it works after the folder moves to another computer.
 
 The office won't open a drive, your home folder or the projects folder itself as a project, since it commits every file in a project.
 
@@ -123,10 +141,10 @@ To work on an existing repository, such as your team's, open your clone as a pro
 | `--lang en\|ru` | language of the page and the agents, default `en`; the page also has an EN/RU switch |
 | `--model M` | model for the agents left on auto in their drawer, for example `opus` or `claude-haiku-5-5` |
 | `--effort` | `low` / `medium` / `high` / `xhigh` / `max`, for the agents left on auto |
-| `--no-bash` | do not let the developer run shell commands; checks from `.ai-review.toml` are skipped too, since the developer can edit that file |
+| `--no-bash` | do not let the developers run shell commands; checks from `.ai-review.toml` are skipped too, since the developers can edit that file |
 | `--no-skills` | run the agents without the office's skills |
 
-**Safety.** The developer can run commands on your computer; `--no-bash` turns that off. The idea maker may read web pages, so its briefs are untrusted text: each brief tells the developer to stay in the project folder and not to download, install or send anything, but that is an instruction, not a sandbox. With the autopilot on, a brief reaches the developer before you read it; use `--no-bash` or keep the autopilot off when that matters. Because the developer can run commands, the server listens only on `127.0.0.1` and rejects requests from other sites: it checks `Host` and `Origin` and accepts only JSON. The page opens only by `localhost`, by the address given to `--host`, or by a name given to `--allow-host`; any other name is refused, so a site that points its own domain at your computer gets nothing. Do not expose it to a network unless you need to.
+**Safety.** The developers can run commands on your computer; `--no-bash` turns that off. The idea maker may read web pages, so its briefs are untrusted text: each brief tells the developer to stay in the project folder and not to download, install or send anything, but that is an instruction, not a sandbox. With the autopilot on, a brief reaches a developer before you read it; use `--no-bash` or keep the autopilot off when that matters. Because the developers can run commands, the server listens only on `127.0.0.1` and rejects requests from other sites: it checks `Host` and `Origin` and accepts only JSON. The page opens only by `localhost`, by the address given to `--host`, or by a name given to `--allow-host`; any other name is refused, so a site that points its own domain at your computer gets nothing. Do not expose it to a network unless you need to.
 
 **Limits.** Each task and each review uses your subscription limits. The bars in the header show how much of the 5-hour and the weekly limit is used, as Claude Code reports it. To fill them at start, the office makes one tiny request to the smallest model (about 1,500 tokens); after that every agent run updates them, and a click on them checks again. Hover over a bar to see when it resets. `/usage` in Claude Code shows the same. The dollar amount next to them is Claude Code's estimate, not a charge.
 
@@ -134,9 +152,9 @@ To work on an existing repository, such as your team's, open your clone as a pro
 
 - **Failing checks skip the model review.** If the project's checks fail, the work goes back with their output right away, without a reviewer run: the code will change anyway. Turn this off with `fast_fail = false` in `.ai-review.toml`.
 - **New files are sent once.** Their content is already in the diff, so it is not repeated in the review prompt.
-- **A re-review gets the previous notes** and coderen's reply to them, and checks each one instead of starting from scratch.
+- **A re-review gets the previous notes** and the developer's reply to them, and checks each one instead of starting from scratch.
 - **Caches stay out.** `__pycache__`, `node_modules`, virtualenvs and the like go into the repository's local exclude file, so they are never reviewed or committed.
-- The reviewer starts fresh for each review and only reads files; the developer keeps one conversation, so fixes do not repeat context.
+- The reviewer starts fresh for each review and only reads files; each developer keeps its own conversation, so fixes do not repeat context.
 
 ## ai-review
 
@@ -192,12 +210,12 @@ reviewer/
   processes.py    ends a command together with everything it started
   cli.py          the ai-review command
 office/
-  agents.py       the office: idea maker, developer, reviewer, autopilot, skills, git snapshots, its memory
+  agents.py       the office: idea maker, two developers, reviewer, autopilot, skills, git snapshots, its memory
   projects.py     the project list and the project the office has open
   ideator.py      the idea maker's prompt and the schema of its ideas
   i18n.py         English and Russian texts of the office
   server.py       HTTP server and the event stream (SSE) for the page
-  skills/         each agent's skills as a Claude Code plugin
+  skills/         the agents' skills as Claude Code plugins
   static/         the page: scene.js draws the pixel office, app.js runs the interface
 ```
 

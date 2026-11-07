@@ -5,6 +5,7 @@ import json
 import pytest
 
 from office.agents import SKILLS_DIR, Office, limit_windows, load_skills
+from office.i18n import MESSAGES
 from reviewer import claude_code, llm
 from reviewer.context import FileSnapshot, ReviewContext, collect_diff
 
@@ -30,29 +31,43 @@ def arg(call, flag):
     return args[args.index(flag) + 1]
 
 
+def all_args(call, flag):
+    args = call["args"]
+    return [args[n + 1] for n, a in enumerate(args) if a == flag]
+
+
 # ---------- skills ----------
 
 
-def test_each_role_has_its_own_skills():
-    worker = {s["name"] for s in load_skills("worker")}
-    reviewer = {s["name"] for s in load_skills("reviewer")}
+def test_each_role_has_its_own_skills(tmp_path):
+    skills = {role: {s["name"] for s in found} for role, found in Office(tmp_path / "ws").skills.items()}
+    shared = {"test-first", "project-setup", "debugging", "address-review", "self-check"}
 
-    assert {"test-first", "frontend-ui", "frontend-verify", "self-check"} <= worker
-    assert {"security-review", "frontend-review", "verify-fixes"} <= reviewer
-    assert not worker & reviewer
-    for role in ("worker", "reviewer"):
-        manifest = json.loads((SKILLS_DIR / role / ".claude-plugin" / "plugin.json").read_text())
-        assert manifest["name"] == f"{role}-skills"
-        assert all(s["description"] for s in load_skills(role))
+    assert shared | {"api-design", "data-model"} == skills["backend"]
+    assert shared | {"frontend-design", "frontend-ui", "frontend-verify"} == skills["frontend"]
+    assert {"security-review", "frontend-review", "verify-fixes"} <= skills["reviewer"]
+    assert {"brainstorm", "write-brief", "ui-brief"} <= skills["ideator"]
+    assert not (skills["backend"] | skills["frontend"]) & skills["reviewer"]
+    for plugin in ("developer", "backend", "frontend", "reviewer", "ideator"):
+        manifest = json.loads((SKILLS_DIR / plugin / ".claude-plugin" / "plugin.json").read_text())
+        assert manifest["name"] == f"{plugin}-skills"
+        assert all(s["description"] for s in load_skills(plugin))
+
+
+def test_every_skill_has_a_label_in_both_languages(tmp_path):
+    office = Office(tmp_path / "ws")
+    names = {s["name"] for found in office.skills.values() for s in found}
+
+    assert all(f"skill_{name}" in MESSAGES["en"] and f"skill_{name}" in MESSAGES["ru"] for name in names)
 
 
 def test_snapshot_lists_skills_with_labels_in_the_page_language(tmp_path):
     office = Office(tmp_path / "ws", lang="ru")
-    labels = {s["name"]: s["label"] for s in office.snapshot()["skills"]["worker"]}
+    labels = {s["name"]: s["label"] for s in office.snapshot()["skills"]["frontend"]}
 
     assert labels["frontend-ui"].startswith("Верстает")
     office.set_language("en")
-    labels = {s["name"]: s["label"] for s in office.snapshot()["skills"]["worker"]}
+    labels = {s["name"]: s["label"] for s in office.snapshot()["skills"]["frontend"]}
     assert labels["frontend-ui"].startswith("Builds pages")
 
 
@@ -64,9 +79,9 @@ def test_agents_get_their_plugin_and_the_skill_tool(fake_claude, tmp_path, monke
     office.request_review()
     office.wait_idle()
 
-    worker_call, review_call = fake_claude()
-    assert arg(worker_call, "--plugin-dir") == str(SKILLS_DIR / "worker")
-    assert "Skill" in arg(worker_call, "--tools").split(",")
+    dev_call, review_call = fake_claude()
+    assert all_args(dev_call, "--plugin-dir") == [str(SKILLS_DIR / "developer"), str(SKILLS_DIR / "backend")]
+    assert "Skill" in arg(dev_call, "--tools").split(",")
     assert arg(review_call, "--plugin-dir") == str(SKILLS_DIR / "reviewer")
     assert arg(review_call, "--tools") == "Read,Grep,Glob,Skill"
     assert "frontend-review" in review_call["prompt"]
@@ -78,7 +93,7 @@ def test_skills_can_be_turned_off(fake_claude, tmp_path):
     office.wait_idle()
 
     assert "--plugin-dir" not in fake_claude()[0]["args"]
-    assert office.snapshot()["skills"] == {"worker": [], "reviewer": [], "ideator": []}
+    assert office.snapshot()["skills"] == {"backend": [], "frontend": [], "reviewer": [], "ideator": []}
 
 
 def test_skill_in_use_is_tracked_and_logged(fake_claude, tmp_path, monkeypatch):
@@ -96,7 +111,7 @@ def test_skill_in_use_is_tracked_and_logged(fake_claude, tmp_path, monkeypatch):
     office.wait_idle()
 
     assert "test-first" in seen
-    assert office.agents["worker"]["skill"] is None
+    assert office.agents["backend"]["skill"] is None
     assert any(e["kind"] == "skill" and e["text"] == "Using skill: test-first" for e in office._log)
 
 
@@ -153,7 +168,7 @@ def test_turning_autopilot_on_continues_from_the_current_state(fake_claude, tmp_
     assert office.autopilot == {"enabled": True, "max_rounds": 3, "round": 1, "halted": "approved"}
 
 
-def test_autopilot_halts_on_worker_error(fake_claude, tmp_path, monkeypatch):
+def test_autopilot_halts_on_developer_error(fake_claude, tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_FAIL", "1")
     office = Office(tmp_path / "ws")
     office.set_autopilot(True)
@@ -266,7 +281,7 @@ def test_phrases_with_values_switch_language_too(fake_claude, tmp_path, monkeypa
     office.set_language("ru")
 
     assert office.agents["reviewer"]["bubble"] == "Нужны правки (серьёзных: 1)"
-    assert office.agents["worker"]["bubble"] == "Готово! Можно проверять"
+    assert office.agents["backend"]["bubble"] == "Готово! Можно проверять"
 
 
 def test_caches_stay_out_of_review_and_commits(tmp_path):
@@ -300,7 +315,7 @@ def test_broken_project_config_does_not_leave_the_reviewer_stuck(fake_claude, tm
 
 def test_without_bash_project_checks_do_not_run(fake_claude, tmp_path):
     # The developer can still write .ai-review.toml, so its commands would be Bash by another name.
-    office = Office(tmp_path / "ws", worker_tools=["Read", "Write"])
+    office = Office(tmp_path / "ws", developer_tools=["Read", "Write"])
     marker = tmp_path / "ran"
     (tmp_path / "ws" / ".ai-review.toml").write_text(f'checks = ["touch {marker}"]\n')
     office.start_task("x")
@@ -328,11 +343,11 @@ def test_stop_right_after_start_stops_the_run(fake_claude, tmp_path, monkeypatch
     monkeypatch.setenv("FAKE_CLAUDE_HANG", str(tmp_path / "child.pid"))
     office = Office(tmp_path / "ws")
     office.start_task("x")
-    office.stop("worker")
+    office.stop("backend")
     office.wait_idle()
 
-    assert office.agents["worker"]["status"] == "idle"
-    assert office.agents["worker"]["bubble"] == "Stopped. Waiting for you"
+    assert office.agents["backend"]["status"] == "idle"
+    assert office.agents["backend"]["bubble"] == "Stopped. Waiting for you"
 
 
 def test_an_unexpected_error_does_not_leave_the_reviewer_busy(fake_claude, tmp_path, monkeypatch):
@@ -486,7 +501,7 @@ def test_http_limits_check(server, fake_claude):  # noqa: F811
 
 def test_each_agent_runs_with_its_own_model_and_effort(fake_claude, tmp_path):
     office = Office(tmp_path / "ws")
-    office.set_choice("worker", "sonnet", "low")
+    office.set_choice("backend", "sonnet", "low")
     office.set_choice("reviewer", "opus", "xhigh")
 
     office.start_task("x")
@@ -494,22 +509,22 @@ def test_each_agent_runs_with_its_own_model_and_effort(fake_claude, tmp_path):
     office.request_review()
     office.wait_idle()
 
-    worker, reviewer = work(fake_claude())[0], reviews(fake_claude())[0]
-    assert (arg(worker, "--model"), arg(worker, "--effort")) == ("sonnet", "low")
+    dev, reviewer = work(fake_claude())[0], reviews(fake_claude())[0]
+    assert (arg(dev, "--model"), arg(dev, "--effort")) == ("sonnet", "low")
     assert (arg(reviewer, "--model"), arg(reviewer, "--effort")) == ("opus", "xhigh")
 
 
 def test_auto_falls_back_to_the_command_line_then_to_defaults(fake_claude, tmp_path):
     office = Office(tmp_path / "ws", model="haiku")
-    office.set_choice("worker", None, "medium")
+    office.set_choice("backend", None, "medium")
 
     office.start_task("x")
     office.wait_idle()
     office.request_review()
     office.wait_idle()
 
-    worker, reviewer = work(fake_claude())[0], reviews(fake_claude())[0]
-    assert (arg(worker, "--model"), arg(worker, "--effort")) == ("haiku", "medium")
+    dev, reviewer = work(fake_claude())[0], reviews(fake_claude())[0]
+    assert (arg(dev, "--model"), arg(dev, "--effort")) == ("haiku", "medium")
     assert arg(reviewer, "--model") == "haiku"
     assert arg(reviewer, "--effort") == "high"  # the reviewer's own default
     assert office.snapshot()["defaults"] == {"model": "haiku", "effort": None}
@@ -517,10 +532,10 @@ def test_auto_falls_back_to_the_command_line_then_to_defaults(fake_claude, tmp_p
 
 def test_choices_are_checked(tmp_path):
     office = Office(tmp_path / "ws")
-    for agent, model, effort in [("boss", "opus", None), ("worker", "gpt", None), ("worker", None, "huge")]:
+    for agent, model, effort in [("worker", "opus", None), ("backend", "gpt", None), ("frontend", None, "huge")]:
         with pytest.raises(ValueError):
             office.set_choice(agent, model, effort)
-    assert office.choices["worker"] == {"model": None, "effort": None}
+    assert office.choices["backend"] == {"model": None, "effort": None}
 
 
 def test_choices_stay_after_a_restart(tmp_path):
@@ -530,7 +545,7 @@ def test_choices_stay_after_a_restart(tmp_path):
     again = Office(tmp_path / "ws", choices_file=saved)
 
     assert again.snapshot()["choices"]["ideator"] == {"model": "haiku", "effort": "low"}
-    assert again.choices["worker"] == {"model": None, "effort": None}
+    assert again.choices["backend"] == {"model": None, "effort": None}
 
 
 def test_a_broken_choices_file_means_auto(tmp_path):
@@ -538,11 +553,11 @@ def test_a_broken_choices_file_means_auto(tmp_path):
     saved.write_text('{"agents": {"worker": {"model": "gpt-9", "effort": "low"}, "reviewer": [1]}')  # not even JSON
 
     office = Office(tmp_path / "ws", choices_file=saved)
-    assert office.choices["worker"] == {"model": None, "effort": None}
+    assert office.choices["backend"] == {"model": None, "effort": None}
 
     saved.write_text('{"agents": {"worker": {"model": "gpt-9", "effort": "low"}, "reviewer": [1]}}')
     office = Office(tmp_path / "ws", choices_file=saved)
-    assert office.choices["worker"] == {"model": None, "effort": "low"}
+    assert office.choices["backend"] == {"model": None, "effort": "low"}
     assert office.choices["reviewer"] == {"model": None, "effort": None}
 
 
@@ -550,9 +565,9 @@ def test_http_choice(server):  # noqa: F811
     base, _ = server
     json_header = {"Content-Type": "application/json"}
 
-    status, body = request(base + "/api/choice", "POST", {"agent": "worker", "model": "opus", "effort": ""}, json_header)
-    assert status == 200 and json.loads(body)["choices"]["worker"] == {"model": "opus", "effort": None}
-    assert request(base + "/api/choice", "POST", {"agent": "worker", "model": "gpt"}, json_header)[0] == 400
+    status, body = request(base + "/api/choice", "POST", {"agent": "backend", "model": "opus", "effort": ""}, json_header)
+    assert status == 200 and json.loads(body)["choices"]["backend"] == {"model": "opus", "effort": None}
+    assert request(base + "/api/choice", "POST", {"agent": "backend", "model": "gpt"}, json_header)[0] == 400
 
 
 # ---------- commit author ----------

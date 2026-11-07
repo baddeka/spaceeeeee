@@ -1,4 +1,4 @@
-"""The office: an idea maker, a worker that writes code, and a reviewer that checks it."""
+"""The office: an idea maker, two developers (backend and frontend), and a reviewer who checks their work."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from reviewer import context
@@ -32,27 +32,65 @@ from .ideator import (
     task_from_idea,
 )
 
-WORKER_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Skill"]
+# The two developers. A task goes to one of them, and its review notes go back to the same one.
+DEVELOPERS = ("backend", "frontend")
+ROLES = (*DEVELOPERS, "reviewer", "ideator")
+NAMES = {"backend": "backren", "frontend": "frontren", "reviewer": "checkren", "ideator": "idearen"}
 
-# Each role's skills are a Claude Code plugin, loaded only into that agent's runs.
+DEVELOPER_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Skill"]
+# frontren also looks for design references on the web.
+EXTRA_TOOLS = {"backend": [], "frontend": ["WebSearch", "WebFetch"]}
+
+# Each role's skills are Claude Code plugins, loaded only into that role's runs.
 SKILLS_DIR = Path(__file__).parent / "skills"
-ROLES = ("worker", "reviewer", "ideator")
+PLUGINS = {
+    "backend": ("developer", "backend"),
+    "frontend": ("developer", "frontend"),
+    "reviewer": ("reviewer",),
+    "ideator": ("ideator",),
+}
 
-WORKER_PROMPT = """\
-You are coderen, the developer in a three-person office: idearen comes up with ideas, you build \
-them in the current directory, and checkren reviews your work. When you receive review findings, \
-fix every critical and major issue, and the minor ones where the fix is clear.
+TEAM = (
+    "idearen comes up with ideas, backren builds the backend (data, APIs, logic), frontren builds the "
+    "frontend (pages, components, styles), and checkren reviews their work."
+)
+
+DEVELOPER_PROMPTS = {
+    "backend": f"""\
+You are backren, the backend developer in a four-person office: {TEAM} You build in the current \
+directory. When you receive review findings, fix every critical and major issue, and the minor ones \
+where the fix is clear.
 Before you start, load the skills that match the request with the Skill tool: test-first for any \
-behavior change, project-setup for a new project, frontend-ui and frontend-verify for anything with \
-a user interface, address-review when the request contains review notes. Always load self-check \
-and follow it before your final message.
+behavior change, project-setup for a new project, api-design for anything the frontend calls, \
+data-model when data is stored, debugging when something fails, address-review when the request \
+contains review notes. Always load self-check and follow it before your final message.
+Keep API.md current: it is the contract frontren builds against. If the task needs a user interface, \
+build no more of it than you need to check the backend, and say in your final message what frontren \
+should build.
 Each request ends with the language to reply in; use it for every message to the user. \
 When you finish, say in two or three sentences what you did and how to run or test it.
-"""
+""",
+    "frontend": f"""\
+You are frontren, the frontend developer in a four-person office: {TEAM} You build what people see \
+and use, in the current directory. When you receive review findings, fix every critical and major \
+issue, and the minor ones where the fix is clear.
+Before you start, load the skills that match the request with the Skill tool: frontend-design for any \
+new or reshaped interface, frontend-ui for structure, accessibility and states, project-setup for a \
+new project, test-first for behavior, debugging when something fails, address-review when the request \
+contains review notes. Load frontend-verify and self-check, and follow both, before your final message.
+Follow DESIGN.md when the project has one: it is the style the user chose. Build against API.md when \
+the backend has one; where an endpoint you need does not exist yet, keep mock data behind one small \
+module and say in your final message what backren should build.
+Prefer what exists to drawing from scratch: the project's own components, a component library it \
+already uses, an icon set such as Lucide, and images the user attached.
+Each request ends with the language to reply in; use it for every message to the user. \
+When you finish, say in two or three sentences what you did and how to see it.
+""",
+}
 
 REVIEWER_PERSONA = (
-    "In this office you are checkren, the reviewer. The developer whose work you check is coderen; "
-    "the ideas come from idearen."
+    "In this office you are checkren, the reviewer. The developers whose work you check are backren "
+    "(backend) and frontren (frontend); the ideas come from idearen."
 )
 
 REVIEWER_SKILLS_HINT = (
@@ -106,6 +144,15 @@ class Busy(Exception):
     pass
 
 
+@dataclass
+class Desk:
+    """A developer's own state: the run in progress, its Claude Code conversation, and its last reply."""
+
+    run: ClaudeCodeRun | None = None
+    session_id: str | None = None
+    reply: str | None = None
+
+
 def describe_tool(name: str, args: dict, lang: str = "en") -> str:
     """A short, human description of what an agent is doing, shown in its speech bubble."""
     path = Path(str(args.get("file_path") or args.get("path") or "")).name
@@ -133,7 +180,7 @@ def describe_tool(name: str, args: dict, lang: str = "en") -> str:
 
 
 def skill_name(args: dict) -> str:
-    """`worker-skills:test-first` -> `test-first`."""
+    """`developer-skills:test-first` -> `test-first`."""
     return str(args.get("skill", "")).split(":")[-1]
 
 
@@ -153,10 +200,10 @@ def rework_prompt(verdict: dict, lang: str = "en") -> str:
     return "\n".join(lines)
 
 
-def load_skills(role: str) -> list[dict]:
-    """Names and descriptions of a role's skills, read from their SKILL.md front matter."""
+def load_skills(plugin: str) -> list[dict]:
+    """Names and descriptions of a plugin's skills, read from their SKILL.md front matter."""
     skills = []
-    for path in sorted((SKILLS_DIR / role / "skills").glob("*/SKILL.md")):
+    for path in sorted((SKILLS_DIR / plugin / "skills").glob("*/SKILL.md")):
         meta = _front_matter(path.read_text(encoding="utf-8"))
         skills.append({"name": meta.get("name", path.parent.name), "description": meta.get("description", "")})
     return skills
@@ -203,7 +250,7 @@ class Office:
         *,
         model: str | None = None,
         effort: str | None = None,
-        worker_tools: list[str] | None = None,
+        developer_tools: list[str] | None = None,
         lang: str = "en",
         skills: bool = True,
         choices_file: Path | None = None,
@@ -214,9 +261,12 @@ class Office:
         self.workspace = workspace
         self.model = model
         self.effort = effort
-        self.worker_tools = worker_tools if worker_tools is not None else WORKER_TOOLS
-        self.skills = {role: load_skills(role) if skills else [] for role in ROLES}
-        self._plugin_dirs = {role: [SKILLS_DIR / role] if skills else [] for role in ROLES}
+        self.developer_tools = developer_tools if developer_tools is not None else DEVELOPER_TOOLS
+        self.skills = {
+            role: [skill for plugin in PLUGINS[role] for skill in load_skills(plugin)] if skills else []
+            for role in ROLES
+        }
+        self._plugin_dirs = {role: [SKILLS_DIR / plugin for plugin in PLUGINS[role]] if skills else [] for role in ROLES}
         # Each agent's model and effort as picked on the page, kept in `choices_file` between starts.
         # None is "auto": the command line's --model / --effort, else what Claude Code picks.
         self._choices_file = choices_file
@@ -226,9 +276,9 @@ class Office:
         self._lock = threading.RLock()
         self._subscribers: list[queue.Queue] = []
         self._log: deque[dict] = deque(maxlen=LOG_LIMIT)
-        self._worker_run: ClaudeCodeRun | None = None
-        # The developer's last reply, so a re-review hears its side about each note.
-        self._worker_reply: str | None = None
+        # Each developer's desk: its run, its conversation and its last reply, which a re-review
+        # hears as its side of each note.
+        self.desks = {dev: Desk() for dev in DEVELOPERS}
         self._ideator_run: ClaudeCodeRun | None = None
         # The idea maker keeps one conversation, so asking again on a topic brings new ideas.
         self._ideator_session: str | None = None
@@ -240,18 +290,12 @@ class Office:
         self._closed = False
         self._threads: list[threading.Thread] = []
 
-        self.agents = {
-            "worker": {"status": "idle", "bubble": self._t("worker_waiting"), "skill": None},
-            "reviewer": {"status": "idle", "bubble": self._t("reviewer_waiting"), "skill": None},
-            "ideator": {"status": "idle", "bubble": self._t("ideator_waiting"), "skill": None},
-        }
+        waiting = {**{dev: "dev_waiting" for dev in DEVELOPERS}, "reviewer": "reviewer_waiting", "ideator": "ideator_waiting"}
+        self.agents = {role: {"status": "idle", "bubble": self._t(waiting[role]), "skill": None} for role in ROLES}
         # The phrase behind each bubble, so a language switch can say it again; None for live text.
-        self._bubble_src: dict[str, tuple[str, dict] | None] = {
-            "worker": ("worker_waiting", {}),
-            "reviewer": ("reviewer_waiting", {}),
-            "ideator": ("ideator_waiting", {}),
-        }
-        self.session_id: str | None = None
+        self._bubble_src: dict[str, tuple[str, dict] | None] = {role: (waiting[role], {}) for role in ROLES}
+        # Who has the current task: its review notes go back to the same developer.
+        self.owner = "backend"
         self.baseline: str | None = None
         self.task: str | None = None
         self.task_title: str | None = None
@@ -259,7 +303,7 @@ class Office:
         self.topic: str | None = None
         self.ideas: list[dict] | None = None
         self.cost_usd = 0.0
-        # The tasks accepted in this project, oldest first: {"title", "commit", "time"}.
+        # The tasks accepted in this project, oldest first: {"title", "commit", "time", "by"}.
         self.history: list[dict] = []
         # The subscription's usage limits, from the last rate_limit_event any agent's run reported.
         self.limits: list[dict] | None = None
@@ -277,6 +321,7 @@ class Office:
             return {
                 "agents": {k: dict(v) for k, v in self.agents.items()},
                 "task": self.task,
+                "owner": self.owner,
                 # A copy: the event is sent later, and by then send_rework may have changed the verdict.
                 "verdict": dict(self.verdict) if self.verdict else None,
                 "project": {"name": self.workspace.name, "path": str(self.workspace)},
@@ -327,6 +372,8 @@ class Office:
         except (OSError, ValueError):
             return  # an unreadable file only means auto everywhere; the next choice rewrites it
         agents = saved.get("agents") if isinstance(saved, dict) else None
+        if isinstance(agents, dict) and "backend" not in agents:
+            agents["backend"] = agents.get("worker")  # saved before there were two developers
         for role in ROLES:
             choice = agents.get(role) if isinstance(agents, dict) else None
             if isinstance(choice, dict):
@@ -391,7 +438,8 @@ class Office:
             "task": self.task,
             "task_title": self.task_title,
             "verdict": self.verdict,
-            "worker_reply": self._worker_reply,
+            "owner": self.owner,
+            "reply": self.desks[self.owner].reply,
             "topic": self.topic,
             "ideas": self.ideas,
             "history": self.history,
@@ -429,7 +477,8 @@ class Office:
                 self.task = _text(saved.get("task"))
                 self.task_title = _text(saved.get("task_title"))
                 self.verdict = _verdict(saved.get("verdict"))
-                self._worker_reply = _text(saved.get("worker_reply"))
+                self.owner = saved.get("owner") if saved.get("owner") in DEVELOPERS else "backend"
+                self.desks[self.owner].reply = _text(saved.get("reply") or saved.get("worker_reply"))
             self.topic = _text(saved.get("topic"))
             self.ideas = _ideas(saved.get("ideas")) if self.topic else None
             self.history = [done for done in saved.get("history") or [] if _done(done)]
@@ -459,7 +508,7 @@ class Office:
             "",
             f"## {self._t('summary_done')}",
         ]
-        lines += [f"- {_when(done['time'])} · {done['title']}" for done in self.history] or [
+        lines += [f"- {_when(done['time'])} · {done['title']}{_by(done)}" for done in self.history] or [
             self._t("summary_nothing_done")
         ]
         lines += ["", f"## {self._t('summary_now')}"]
@@ -471,7 +520,8 @@ class Office:
         if self.ideas:
             lines += ["", f"## {self._t('summary_ideas', topic=self.topic)}"]
             lines += [
-                f"- {idea['title']}" + (f" ({self._t('summary_idea_handed')})" if idea["handed"] else "")
+                f"- {idea['title']}"
+                + (f" ({self._t('summary_idea_handed', name=NAMES[idea['developer']])})" if idea["handed"] else "")
                 for idea in self.ideas
             ]
         return "\n".join(lines) + "\n"
@@ -481,7 +531,7 @@ class Office:
         for a rework the task and its notes. Nothing for a project without one."""
         notes = []
         if self.history:
-            notes += [self._t("context_done"), *(f"- {done['title']}" for done in self.history)]
+            notes += [self._t("context_done"), *(f"- {done['title']}{_by(done)}" for done in self.history)]
         if with_task and self.task:
             notes += [self._t("context_task", task=self.task)]
         if not notes:
@@ -542,10 +592,20 @@ class Office:
     # ----- actions -----
 
     def _busy_check(self) -> None:
-        if self.agents["worker"]["status"] == "working":
-            raise Busy(self._t("busy_worker"))
+        # The developers share one folder, so one of them works at a time, and never during a review.
+        for dev in DEVELOPERS:
+            if self.agents[dev]["status"] == "working":
+                raise Busy(self._t("busy_dev", name=NAMES[dev]))
         if self.agents["reviewer"]["status"] == "reviewing":
             raise Busy(self._t("busy_reviewer"))
+
+    def _building(self) -> bool:
+        """Whether a developer or the reviewer is at work, which the autopilot waits for."""
+        try:
+            self._busy_check()
+        except Busy:
+            return True
+        return False
 
     def _start(self, target, *args) -> None:
         thread = threading.Thread(target=target, args=args, daemon=True)
@@ -554,31 +614,38 @@ class Office:
             self._threads = [t for t in self._threads if t.is_alive()] + [thread]
         thread.start()
 
-    def start_task(self, text: str, title: str | None = None, from_idea: bool = False, files=None) -> None:
+    def start_task(
+        self, text: str, developer: str = "backend", title: str | None = None, from_idea: bool = False, files=None
+    ) -> None:
         text = text.strip()
         if not text:
             raise ValueError(self._t("empty_task"))
+        if developer not in DEVELOPERS:
+            raise ValueError(self._t("bad_developer"))
         attachments = self._attachments(files)
         with self._lock:
             self._busy_check()
             if self.baseline is None:
-                # Everything after this commit is the worker's change, which is what gets reviewed.
+                # Everything after this commit is the developers' change, which is what gets reviewed.
                 self.baseline = self._commit("office: before task")
             self.task = text
             self.task_title = (title or text.splitlines()[0])[:60]
             self.verdict = None
             self.autopilot["round"] = 0
             self.autopilot["halted"] = None
-            self.agents["worker"]["status"] = "working"
-            self._phrase("worker", "reading_task")
+            self.owner = developer
+            self.agents[developer]["status"] = "working"
+            self._phrase(developer, "reading_task")
             self._phrase("reviewer", "reviewer_waiting")
-            run = self._prepare_worker(text + self._files_note("task_files", attachments))
+            run = self._prepare(developer, text + self._files_note("task_files", attachments))
         if from_idea:
-            self._log_entry("ideator", "handoff", self._t("log_idea_handoff", title=self.task_title))
+            self._log_entry(
+                "ideator", "handoff", self._t("log_idea_handoff", name=NAMES[developer], title=self.task_title)
+            )
         else:
-            self._log_entry("user", "task", text + _file_names(attachments))
+            self._log_entry("user", "task", self._t("log_task", name=NAMES[developer], text=text) + _file_names(attachments))
         self._emit_state()
-        self._start(self._work, run)
+        self._start(self._work, developer, run)
 
     def send_rework(self) -> None:
         with self._lock:
@@ -590,14 +657,15 @@ class Office:
             prompt = rework_prompt(self.verdict, self.lang)
             # The verdict stays visible as the list being fixed, but it describes the old version now.
             self.verdict["sent"] = True
-            self.agents["worker"]["status"] = "working"
-            self._phrase("worker", "reading_findings")
+            developer = self.owner
+            self.agents[developer]["status"] = "working"
+            self._phrase(developer, "reading_findings")
             self.agents["reviewer"]["status"] = "idle"
             self._phrase("reviewer", "waiting_for_fixes")
-            run = self._prepare_worker(prompt, with_task=True)
-        self._log_entry("reviewer", "handoff", self._t("log_handoff"))
+            run = self._prepare(developer, prompt, with_task=True)
+        self._log_entry("reviewer", "handoff", self._t("log_handoff", name=NAMES[developer]))
         self._emit_state()
-        self._start(self._work, run)
+        self._start(self._work, developer, run)
 
     def request_review(self, auto: bool = False) -> None:
         with self._lock:
@@ -607,7 +675,7 @@ class Office:
             # On a re-review the reviewer checks that its earlier notes were fixed.
             previous = self.verdict["issues"] if self.verdict and self.verdict.get("sent") else None
             # Also when the verdict had no notes, only failing checks: the reply says what was done about them.
-            reply = self._worker_reply if previous is not None else None
+            reply = self.desks[self.owner].reply if previous is not None else None
             self.agents["reviewer"]["status"] = "reviewing"
             self._phrase("reviewer", "looking_at_changes")
         if auto:
@@ -623,24 +691,28 @@ class Office:
             if self.baseline is None:
                 raise ValueError(self._t("nothing_to_accept"))
             self.baseline = self._commit(f"office: accepted: {self.task_title or 'work'}")
-            self.history.append({"title": self.task_title or "work", "commit": self.baseline, "time": time.time()})
+            self.history.append(
+                {"title": self.task_title or "work", "commit": self.baseline, "time": time.time(), "by": self.owner}
+            )
             # Accepted work is done; the next task, or the next idea, starts from this commit.
             self.task = None
             self.task_title = None
             self.verdict = None
-            self._phrase("worker", "accepted_waiting")
+            for desk in self.desks.values():
+                desk.reply = None  # their reports are about work that is now done
+            self._phrase(self.owner, "accepted_waiting")
             self.agents["reviewer"]["status"] = "idle"
             self._phrase("reviewer", "reviewer_waiting")
         self._log_entry("user", "accept", self._t("log_accept", commit=self.baseline[:8]))
         self._emit_state()
 
-    def stop(self, agent: str = "worker") -> None:
-        if agent not in ("worker", "ideator"):
+    def stop(self, agent: str) -> None:
+        if agent not in (*DEVELOPERS, "ideator"):
             raise ValueError(self._t("cannot_stop"))
         with self._lock:
-            run = self._ideator_run if agent == "ideator" else self._worker_run
+            run = self._ideator_run if agent == "ideator" else self.desks[agent].run
         if run is None:
-            raise ValueError(self._t("ideator_not_running" if agent == "ideator" else "worker_not_running"))
+            raise ValueError(self._t("not_running", name=NAMES[agent]))
         run.stop()
 
     def shutdown(self, grace: float = STOP_GRACE_SECONDS) -> None:
@@ -651,7 +723,9 @@ class Office:
         with self._lock:
             self._closed = True
             runs = [
-                r for r in (self._worker_run, self._ideator_run, self._review_run, self._limits_run) if r is not None
+                r
+                for r in (*(desk.run for desk in self.desks.values()), self._ideator_run, self._review_run, self._limits_run)
+                if r is not None
             ]
             check = self._check_proc
         for run in runs:
@@ -738,7 +812,7 @@ class Office:
                 # A fresh conversation does not know the ideas this project already has.
                 notes += "\n\n" + self._t("ideas_before", titles="; ".join(idea["title"] for idea in self.ideas))
             run = self._ideator_run = ClaudeCodeRun(
-                # Like the worker's, every message of the resumed conversation names the language.
+                # Like the developers', every message of the resumed conversation names the language.
                 idea_request(topic, self._t("reply_in"), notes),
                 cwd=self.workspace,
                 tools=IDEATOR_TOOLS,
@@ -792,8 +866,8 @@ class Office:
             return ""
         return "\n\n" + self._t(key, files="\n".join(f"- {path}" for path in files))
 
-    def hand_off(self, index) -> None:
-        """Gives one of the ideas to the developer as its next task."""
+    def hand_off(self, index, developer: str | None = None) -> None:
+        """Gives one of the ideas to a developer as the next task: the one idearen picked, unless named."""
         with self._lock:
             if not self.ideas:
                 raise ValueError(self._t("no_ideas"))
@@ -805,10 +879,12 @@ class Office:
                 raise ValueError(self._t("bad_idea"))
             self._busy_check()
             idea = self.ideas[n]
+            developer = developer or idea["developer"]
             text = task_from_idea(idea, self.topic or "", self._t("idea_intro"), self._t("idea_guard"))
-            self.start_task(text, title=idea["title"], from_idea=True)
+            self.start_task(text, developer, title=idea["title"], from_idea=True)
             idea["handed"] = True
-            self._phrase("ideator", "handed_off", title=_shorten(idea["title"], 40))
+            idea["developer"] = developer
+            self._phrase("ideator", "handed_off", name=NAMES[developer], title=_shorten(idea["title"], 40))
         self._emit_state()
 
     def set_autopilot(self, enabled: bool, max_rounds: int | None = None) -> None:
@@ -841,9 +917,7 @@ class Office:
         """Takes the next step of the work -> review -> fixes loop, if the autopilot is on."""
         with self._lock:
             pilot = self.autopilot
-            if not pilot["enabled"] or pilot["halted"] or self.task is None:
-                return
-            if self.agents["worker"]["status"] == "working" or self.agents["reviewer"]["status"] == "reviewing":
+            if not pilot["enabled"] or pilot["halted"] or self.task is None or self._building():
                 return
             verdict = self.verdict
             if verdict is None or verdict.get("sent"):
@@ -878,9 +952,7 @@ class Office:
     def _autopilot_handoff(self) -> None:
         """With the autopilot on, fresh ideas go to the developer when the office is free."""
         with self._lock:
-            if not self.autopilot["enabled"] or not self.ideas or self.task is not None:
-                return
-            if self.agents["worker"]["status"] == "working" or self.agents["reviewer"]["status"] == "reviewing":
+            if not self.autopilot["enabled"] or not self.ideas or self.task is not None or self._building():
                 return
             best = next((n for n, i in enumerate(self.ideas) if i["recommended"] and not i["handed"]), None)
             if best is None:
@@ -901,57 +973,64 @@ class Office:
 
     # ----- agent loops -----
 
-    def _prepare_worker(self, prompt: str, with_task: bool = False) -> ClaudeCodeRun:
-        """Sets up the developer's next run; called under the lock, with the status set to working.
+    def _prepare(self, developer: str, prompt: str, with_task: bool = False) -> ClaudeCodeRun:
+        """Sets up a developer's next run; called under the lock, with its status set to working.
 
         The run exists before its thread starts, so Stop works from the first moment. A fresh
         conversation in a project with a past starts from the office's notes on it, and
-        `with_task` adds the current task, which a rework's notes alone don't say.
+        `with_task` adds the current task, which a rework's notes alone don't say. A developer
+        who picks up the other one's unaccepted work hears that developer's report on it, once.
         """
-        self._worker_reply = None
-        if self.session_id is None:
+        desk = self.desks[developer]
+        desk.reply = None
+        other = next(dev for dev in DEVELOPERS if dev != developer)
+        if report := self.desks[other].reply:
+            prompt = self._t("teammate_report", name=NAMES[other], report=report) + "\n\n" + prompt
+            self.desks[other].reply = None
+        if desk.session_id is None:
             prompt = self._project_context(with_task) + prompt
-        self._worker_run = ClaudeCodeRun(
+        desk.run = ClaudeCodeRun(
             # The language goes in every message: a resumed session keeps its original system prompt.
             f"{prompt}\n\n{self._t('reply_in')}",
             cwd=self.workspace,
-            tools=self.worker_tools,
-            append_system_prompt=WORKER_PROMPT,
-            model=self._model("worker"),
-            effort=self._effort("worker"),
-            resume=self.session_id,
+            tools=self.developer_tools + EXTRA_TOOLS[developer],
+            append_system_prompt=DEVELOPER_PROMPTS[developer],
+            model=self._model(developer),
+            effort=self._effort(developer),
+            resume=desk.session_id,
             accept_edits=True,
-            plugin_dirs=self._plugin_dirs["worker"],
+            plugin_dirs=self._plugin_dirs[developer],
         )
         if self._closed:
-            self._worker_run.stop()
-        return self._worker_run
+            desk.run.stop()
+        return desk.run
 
-    def _work(self, run: ClaudeCodeRun) -> None:
+    def _work(self, developer: str, run: ClaudeCodeRun) -> None:
+        desk = self.desks[developer]
         try:
-            result = run.run(lambda e: self._on_agent_event("worker", e))
+            result = run.run(lambda e: self._on_agent_event(developer, e))
         except Exception as e:
             # Any failure must end in "idle": a stuck "working" would block the office for good.
             stopped = isinstance(e, ClaudeCodeStopped)
-            self._log_entry("worker", "error", self._t("log_stopped") if stopped else str(e))
+            self._log_entry(developer, "error", self._t("log_stopped") if stopped else str(e))
             with self._lock:
-                self.agents["worker"]["skill"] = None
-            self._announce("worker", "stopped" if stopped else "went_wrong", "idle")
+                self.agents[developer]["skill"] = None
+            self._announce(developer, "stopped" if stopped else "went_wrong", "idle")
             self._halt_autopilot("stopped" if stopped else "error")
             return
         finally:
             with self._lock:
-                if self._worker_run is run:  # a new task may already have its own run
-                    self._worker_run = None
+                if desk.run is run:  # a new task may already have its own run
+                    desk.run = None
 
         with self._lock:
-            self.session_id = result.session_id or self.session_id
-            self._worker_reply = result.text or None
+            desk.session_id = result.session_id or desk.session_id
+            desk.reply = result.text or None
             self.cost_usd += result.cost_usd or 0
-            self.agents["worker"]["skill"] = None
+            self.agents[developer]["skill"] = None
         if result.text:
-            self._log_entry("worker", "result", result.text)
-        self._announce("worker", "done", "idle")
+            self._log_entry(developer, "result", result.text)
+        self._announce(developer, "done", "idle")
         self._autopilot_step()
 
     def _ideate(self, run: ClaudeCodeRun, topic: str) -> None:
@@ -988,8 +1067,8 @@ class Office:
             ctx = context.collect_diff(self.workspace, base=self.baseline)
             config = load_config(self.workspace)
             checks = config.get("checks", [])
-            if checks and "Bash" not in self.worker_tools:
-                # The developer can still edit .ai-review.toml, so without Bash its commands must not run either.
+            if checks and "Bash" not in self.developer_tools:
+                # The developers can still edit .ai-review.toml, so without Bash its commands must not run either.
                 self._log_entry("reviewer", "check", self._t("checks_skipped"))
                 checks = []
             for command in checks:
@@ -1055,9 +1134,10 @@ class Office:
         self._autopilot_step()
 
     def _on_agent_event(self, agent: str, event: dict) -> None:
-        if event.get("type") == "system" and event.get("subtype") == "init" and agent == "worker":
+        if event.get("type") == "system" and event.get("subtype") == "init" and agent in DEVELOPERS:
             with self._lock:
-                self.session_id = event.get("session_id") or self.session_id
+                desk = self.desks[agent]
+                desk.session_id = event.get("session_id") or desk.session_id
             return
         if event.get("type") == "rate_limit_event":
             self._update_limits(event.get("rate_limit_info"))
@@ -1166,10 +1246,14 @@ def _ideas(value) -> list[dict] | None:
     if not isinstance(value, list):
         return None
     ideas = [
-        idea for idea in value
+        # Ideas saved before there were two developers name neither a developer nor an interface.
+        {"developer": "backend", "ui": "", **idea}
+        for idea in value
         if isinstance(idea, dict)
         and all(isinstance(idea.get(k), str) for k in ("title", "pitch", "why", "task"))
         and idea.get("scope") in ("small", "medium", "large")
+        and idea.get("developer", "backend") in DEVELOPERS
+        and isinstance(idea.get("ui", ""), str)
         and isinstance(idea.get("recommended"), bool)
         and isinstance(idea.get("handed"), bool)
     ]
@@ -1182,7 +1266,13 @@ def _done(value) -> bool:
         and isinstance(value.get("title"), str)
         and isinstance(value.get("commit"), str)
         and isinstance(value.get("time"), (int, float))
+        and value.get("by", "backend") in DEVELOPERS
     )
+
+
+def _by(done: dict) -> str:
+    """Who built an accepted task, for the notes: entries from before two developers have no `by`."""
+    return f" ({NAMES[done['by']]})" if "by" in done else ""
 
 
 def _when(timestamp: float) -> str:

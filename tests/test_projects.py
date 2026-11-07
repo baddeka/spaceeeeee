@@ -146,7 +146,7 @@ def test_the_state_file_changes_only_with_the_state(fake_claude, tmp_path):  # n
     state = tmp_path / "app" / STATE_FILE
     before = state.stat().st_mtime_ns
 
-    office._set_agent("worker", bubble="just talking")
+    office._set_agent("backend", bubble="just talking")
 
     assert state.stat().st_mtime_ns == before
 

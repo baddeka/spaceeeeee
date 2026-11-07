@@ -1,5 +1,5 @@
 {
   "name": "ideator-skills",
-  "description": "Skills for the Rens Office idea maker: brainstorming, checking what already exists, writing briefs for the developer.",
-  "version": "0.1.0"
+  "description": "Skills for the Rens Office idea maker: brainstorming, checking what already exists, writing briefs and interface descriptions for the developers.",
+  "version": "0.2.0"
 }

@@ -4,8 +4,8 @@ const $ = (id) => document.getElementById(id);
 
 const STRINGS = {
   en: {
-    names: { worker: "coderen", reviewer: "checkren", ideator: "idearen", user: "You", office: "Office" },
-    roles: { worker: "Developer", reviewer: "Reviewer", ideator: "Idea maker" },
+    names: { backend: "backren", frontend: "frontren", reviewer: "checkren", ideator: "idearen", user: "You", office: "Office" },
+    roles: { backend: "Backend developer", frontend: "Frontend developer", reviewer: "Reviewer", ideator: "Idea maker" },
     status: {
       idle: "resting", working: "working", reviewing: "reviewing", approved: "approved", rejected: "has notes",
       thinking: "thinking", ready: "ideas ready", sleeping: "sleeping",
@@ -14,16 +14,15 @@ const STRINGS = {
       connecting: "connecting…",
       cost_title: "Cost estimated by Claude Code; with a subscription it uses your limits, not money",
       limits_label: "Subscription limits",
-      scene_label: "Pixel office: coderen, checkren and idearen at their desks. Click an agent to see its skills.",
-      worker_plate: "coderen",
-      reviewer_plate: "checkren",
-      ideator_plate: "idearen",
+      scene_label: "Pixel office: backren and checkren at the back, frontren and idearen in front. Click an agent to see its skills.",
       topic_label: "TOPIC FOR IDEAREN",
       topic_placeholder: "For example: tools for students before exams",
       btn_ideas: "Get ideas",
       open_drawer: "Open skills and activity",
-      task_label: "TASK FOR CODEREN",
-      task_placeholder: "For example: build a Python CLI that counts words in a file, with tests",
+      task_label: "TASK FOR",
+      dev_label: "Who gets the task",
+      dev_backend_title: "backren: data, APIs, logic",
+      dev_frontend_title: "frontren: pages, components, style",
       btn_task: "Give task",
       btn_attach: "📎 Attach files",
       btn_projects: "◂ Projects",
@@ -43,7 +42,7 @@ const STRINGS = {
       autopilot_label: "AUTOPILOT",
       rounds_label: "Max rounds",
       log_title: "LOG",
-      log_empty: "All quiet. Give coderen a task.",
+      log_empty: "All quiet. Give backren or frontren a task.",
       now_title: "NOW",
       model_title: "MODEL AND EFFORT",
       model_label: "Model",
@@ -60,7 +59,11 @@ const STRINGS = {
     },
     online: "online",
     offline: "offline",
-    hint_working: "coderen is working. You can call checkren when the work is ready.",
+    task_placeholder: {
+      backend: "For example: an API that keeps notes in SQLite, with tests",
+      frontend: "For example: a landing page for the timer, phone first",
+    },
+    hint_working: (name) => `${name} is working. You can call checkren when the work is ready.`,
     hint_reviewing: "checkren is checking the changes…",
     hint_sent: "The fixes are ready. Call checkren to check them.",
     hint_rework: "There are review notes: send the work back or adjust the task.",
@@ -75,7 +78,7 @@ const STRINGS = {
       error: "Stopped: an error",
       stopped: "Stopped",
     },
-    verdict_sent: "Notes sent to coderen",
+    verdict_sent: (name) => `Notes sent to ${name}`,
     verdict_approved: "Approved",
     verdict_rejected: "Needs work",
     check_failed: (cmd) => `check failed: ${cmd}`,
@@ -99,9 +102,11 @@ const STRINGS = {
     ideas_for: (topic) => `Ideas on “${topic}”`,
     recommended: "recommended",
     scope: { small: "small", medium: "medium", large: "large" },
-    brief: "Brief for coderen",
-    hand_off: "Give to coderen",
-    handed: "With coderen",
+    brief: (name) => `Brief for ${name}`,
+    interface: "Interface:",
+    hand_off: (name) => `Give to ${name}`,
+    hand_other: (name) => `or to ${name}`,
+    handed: (name) => `With ${name}`,
     limits: { five_hour: "5h", seven_day: "week", seven_day_opus: "week · Opus", seven_day_sonnet: "week · Sonnet" },
     limits_none: "limits —",
     limits_checking: "limits…",
@@ -120,8 +125,8 @@ const STRINGS = {
     file_too_big: (name) => `${name} is larger than 20 MB`,
   },
   ru: {
-    names: { worker: "coderen", reviewer: "checkren", ideator: "idearen", user: "Ты", office: "Офис" },
-    roles: { worker: "Исполнитель", reviewer: "Ревьюер", ideator: "Генератор идей" },
+    names: { backend: "backren", frontend: "frontren", reviewer: "checkren", ideator: "idearen", user: "Ты", office: "Офис" },
+    roles: { backend: "Бэкенд-разработчик", frontend: "Фронтенд-разработчик", reviewer: "Ревьюер", ideator: "Генератор идей" },
     // Present tense and impersonal forms, so no status guesses anyone's gender.
     status: {
       idle: "отдыхает", working: "работает", reviewing: "проверяет", approved: "одобрено", rejected: "есть замечания",
@@ -131,16 +136,15 @@ const STRINGS = {
       connecting: "подключаюсь…",
       cost_title: "Стоимость по оценке Claude Code; с подпиской списываются лимиты, а не деньги",
       limits_label: "Лимиты подписки",
-      scene_label: "Пиксельный офис: coderen, checkren и idearen за своими столами. Нажми на агента, чтобы увидеть его навыки.",
-      worker_plate: "coderen",
-      reviewer_plate: "checkren",
-      ideator_plate: "idearen",
+      scene_label: "Пиксельный офис: сзади backren и checkren, спереди frontren и idearen. Нажми на агента, чтобы увидеть его навыки.",
       topic_label: "ТЕМА ДЛЯ IDEAREN",
       topic_placeholder: "Например: инструменты для студентов перед сессией",
       btn_ideas: "Придумать идеи",
       open_drawer: "Открыть навыки и действия",
-      task_label: "ЗАДАЧА ДЛЯ CODEREN",
-      task_placeholder: "Например: сделай CLI на Python, который считает слова в файле, и напиши к нему тесты",
+      task_label: "ЗАДАЧА ДЛЯ",
+      dev_label: "Кому задача",
+      dev_backend_title: "backren: данные, API, логика",
+      dev_frontend_title: "frontren: страницы, компоненты, стиль",
       btn_task: "Дать задачу",
       btn_attach: "📎 Прикрепить файлы",
       btn_projects: "◂ Проекты",
@@ -160,7 +164,7 @@ const STRINGS = {
       autopilot_label: "АВТОПИЛОТ",
       rounds_label: "Раундов, не больше",
       log_title: "ЖУРНАЛ",
-      log_empty: "Пока тихо. Дай coderen задачу.",
+      log_empty: "Пока тихо. Дай задачу backren или frontren.",
       now_title: "СЕЙЧАС",
       model_title: "МОДЕЛЬ И EFFORT",
       model_label: "Модель",
@@ -177,7 +181,11 @@ const STRINGS = {
     },
     online: "на связи",
     offline: "нет связи",
-    hint_working: "coderen работает. checkren можно позвать, когда работа будет готова.",
+    task_placeholder: {
+      backend: "Например: API для заметок с хранением в SQLite и тестами",
+      frontend: "Например: лендинг для таймера, сначала под телефон",
+    },
+    hint_working: (name) => `${name} работает. checkren можно позвать, когда работа будет готова.`,
     hint_reviewing: "checkren проверяет изменения…",
     hint_sent: "Исправления готовы. Позови checkren, чтобы проверить их.",
     hint_rework: "Есть замечания: отправь на доработку или поправь задачу.",
@@ -192,7 +200,7 @@ const STRINGS = {
       error: "Стоп: ошибка",
       stopped: "Остановлено",
     },
-    verdict_sent: "Замечания отправлены coderen",
+    verdict_sent: (name) => `Замечания отправлены ${name}`,
     verdict_approved: "Одобрено",
     verdict_rejected: "Нужна доработка",
     check_failed: (cmd) => `упала проверка ${cmd}`,
@@ -216,9 +224,11 @@ const STRINGS = {
     ideas_for: (topic) => `Идеи по теме «${topic}»`,
     recommended: "рекомендую",
     scope: { small: "небольшая", medium: "средняя", large: "большая" },
-    brief: "ТЗ для coderen",
-    hand_off: "Передать coderen",
-    handed: "У coderen",
+    brief: (name) => `ТЗ для ${name}`,
+    interface: "Интерфейс:",
+    hand_off: (name) => `Передать ${name}`,
+    hand_other: (name) => `или ${name}`,
+    handed: (name) => `У ${name}`,
     limits: { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя · Opus", seven_day_sonnet: "неделя · Sonnet" },
     limits_none: "лимиты —",
     limits_checking: "лимиты…",
@@ -239,12 +249,16 @@ const STRINGS = {
 };
 
 const LOG_KEEP = 500;
+const AGENTS = ["backend", "frontend", "reviewer", "ideator"];
+const DEVELOPERS = ["backend", "frontend"];
+const DEVELOPER_KEY = "rens-office-developer";
 
 let state = null;
 let lang = "en";
 const log = []; // every entry the server sent, for the drawer's per-agent activity
 let drawerAgent = null;
 let drawerOpener = null;
+let taskDeveloper = "backend"; // who the next task goes to
 const S = () => STRINGS[lang];
 
 function plural(n, one, few, many) {
@@ -270,6 +284,7 @@ function applyLanguage(next) {
   document.querySelectorAll("[data-i18n-title]").forEach((el) => (el.title = s[el.dataset.i18nTitle]));
   document.querySelectorAll("[data-i18n-label]").forEach((el) => el.setAttribute("aria-label", s[el.dataset.i18nLabel]));
   document.querySelectorAll(".lang-switch button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+  $("task-input").placeholder = S().task_placeholder[taskDeveloper];
   const conn = $("conn");
   if (conn.dataset.state === "online") conn.textContent = S().online;
   else if (conn.dataset.state === "offline") conn.textContent = S().offline;
@@ -302,7 +317,7 @@ function statusText(agent, status) {
 
 function renderPlates() {
   if (!state) return;
-  for (const agent of ["worker", "reviewer", "ideator"]) {
+  for (const agent of AGENTS) {
     if (state.agents[agent]) $(`status-${agent}`).textContent = statusText(agent, state.agents[agent].status);
   }
   if (drawerAgent) renderDrawer();
@@ -337,7 +352,7 @@ function render(s) {
   $("workspace").title = s.project.path;
   $("cost").textContent = formatCost(s.cost_usd);
 
-  for (const agent of ["worker", "reviewer", "ideator"]) {
+  for (const agent of AGENTS) {
     const a = s.agents[agent];
     if (!a) continue;
     $(`desk-${agent}`).dataset.status = a.status;
@@ -345,7 +360,8 @@ function render(s) {
     $(`status-${agent}`).textContent = statusText(agent, a.status);
   }
 
-  const working = s.agents.worker.status === "working";
+  const workingDev = DEVELOPERS.find((dev) => s.agents[dev]?.status === "working");
+  const working = Boolean(workingDev);
   const reviewing = s.agents.reviewer.status === "reviewing";
   const busy = working || reviewing;
   const started = s.task !== null;
@@ -360,7 +376,7 @@ function render(s) {
   $("btn-stop").disabled = !working;
 
   let hint = "";
-  if (working) hint = t.hint_working;
+  if (working) hint = t.hint_working(t.names[workingDev]);
   else if (reviewing) hint = t.hint_reviewing;
   else if (s.verdict?.sent) hint = t.hint_sent;
   else if (needsRework) hint = t.hint_rework;
@@ -371,7 +387,7 @@ function render(s) {
 
   renderAutopilot(s.autopilot);
   renderIdeas(s, busy);
-  renderVerdict(s.verdict);
+  renderVerdict(s.verdict, ownerOf(s));
   if (drawerAgent) renderDrawer();
   window.OfficeScene?.setState(s);
 }
@@ -493,6 +509,21 @@ function renderIdeas(s, busy) {
   });
 }
 
+// The developer who has the current task; its review notes go back to it.
+function ownerOf(s) {
+  return DEVELOPERS.includes(s?.owner) ? s.owner : "backend";
+}
+
+function handoffButton(index, developer, label, className) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `btn idea-handoff ${className}`;
+  button.dataset.index = String(index);
+  button.dataset.developer = developer;
+  button.textContent = label;
+  return button;
+}
+
 function ideaCard(idea, index, t) {
   const li = document.createElement("li");
   li.className = "idea";
@@ -506,7 +537,14 @@ function ideaCard(idea, index, t) {
   const scope = document.createElement("span");
   scope.className = `scope ${idea.scope}`;
   scope.textContent = t.scope[idea.scope] || idea.scope;
-  head.append(title, scope);
+  // idearen's pick of who builds it; the other developer can still take it.
+  const developer = DEVELOPERS.includes(idea.developer) ? idea.developer : "backend";
+  const other = developer === "backend" ? "frontend" : "backend";
+  const who = document.createElement("span");
+  who.className = "dev-tag";
+  who.dataset.developer = developer;
+  who.textContent = `→ ${t.names[developer]}`;
+  head.append(title, scope, who);
   if (idea.recommended) {
     const star = document.createElement("span");
     star.className = "star";
@@ -522,27 +560,43 @@ function ideaCard(idea, index, t) {
 
   const details = document.createElement("details");
   const summary = document.createElement("summary");
-  summary.textContent = t.brief;
+  summary.textContent = t.brief(t.names[developer]);
   const brief = document.createElement("div");
   brief.className = "brief";
   richText(brief, idea.task);
   details.append(summary, brief);
+  if (idea.ui) {
+    // what idearen wants the interface to be and feel like; frontren picks the style
+    const ui = document.createElement("div");
+    ui.className = "brief ui-brief";
+    const label = document.createElement("strong");
+    label.textContent = t.interface;
+    const text = document.createElement("span");
+    richText(text, idea.ui);
+    ui.append(label, " ", text);
+    details.append(ui);
+  }
 
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "btn primary idea-handoff";
-  button.dataset.index = String(index);
-  button.textContent = idea.handed ? `✓ ${t.handed}` : t.hand_off;
+  const actions = document.createElement("div");
+  actions.className = "idea-actions";
+  if (idea.handed) {
+    actions.append(handoffButton(index, developer, `✓ ${t.handed(t.names[developer])}`, "main"));
+  } else {
+    actions.append(
+      handoffButton(index, developer, t.hand_off(t.names[developer]), "main"),
+      handoffButton(index, other, t.hand_other(t.names[other]), "ghost other"),
+    );
+  }
 
-  li.append(head, pitch, why, details, button);
+  li.append(head, pitch, why, details, actions);
   return li;
 }
 
 let verdictKey = "";
 
-function renderVerdict(v) {
+function renderVerdict(v, owner) {
   // Rebuild only when the verdict changes, so text someone is selecting stays selected.
-  const key = JSON.stringify([lang, v]);
+  const key = JSON.stringify([lang, v, owner]);
   if (key === verdictKey) return;
   verdictKey = key;
   const t = S();
@@ -552,7 +606,7 @@ function renderVerdict(v) {
   box.dataset.approved = String(v.approved);
   box.dataset.sent = String(Boolean(v.sent));
   $("verdict-stamp").textContent = v.approved ? "✓" : "✗";
-  $("verdict-title").textContent = v.sent ? t.verdict_sent : v.approved ? t.verdict_approved : t.verdict_rejected;
+  $("verdict-title").textContent = v.sent ? t.verdict_sent(t.names[owner]) : v.approved ? t.verdict_approved : t.verdict_rejected;
   const n = v.issues.length;
   const blocking = v.issues.filter((i) => i.severity === "critical" || i.severity === "major").length;
   const reasons = v.checks.filter((c) => !c.passed).map((c) => t.check_failed(c.command));
@@ -816,7 +870,7 @@ $("task-form").addEventListener("submit", async (e) => {
     input.focus();
     return;
   }
-  if (await post("/api/task", { text: input.value, files: attached.task })) {
+  if (await post("/api/task", { text: input.value, developer: taskDeveloper, files: attached.task })) {
     input.value = "";
     clearFiles("task");
   }
@@ -827,7 +881,10 @@ $("task-input").addEventListener("keydown", (e) => {
 $("btn-review").addEventListener("click", () => post("/api/review"));
 $("btn-rework").addEventListener("click", () => post("/api/rework"));
 $("btn-accept").addEventListener("click", () => post("/api/accept"));
-$("btn-stop").addEventListener("click", () => post("/api/stop", { agent: "worker" }));
+$("btn-stop").addEventListener("click", () => {
+  const working = DEVELOPERS.find((dev) => state?.agents[dev]?.status === "working");
+  if (working) post("/api/stop", { agent: working });
+});
 $("limits").addEventListener("click", () => post("/api/limits"));
 
 $("ideas-form").addEventListener("submit", async (e) => {
@@ -843,7 +900,29 @@ $("ideas-form").addEventListener("submit", async (e) => {
 $("btn-ideas-stop").addEventListener("click", () => post("/api/stop", { agent: "ideator" }));
 $("idea-cards").addEventListener("click", (e) => {
   const button = e.target.closest(".idea-handoff");
-  if (button && !button.disabled) post("/api/handoff", { index: Number(button.dataset.index) });
+  if (button && !button.disabled) {
+    post("/api/handoff", { index: Number(button.dataset.index), developer: button.dataset.developer });
+  }
+});
+
+// ---------- who gets the task ----------
+
+function setTaskDeveloper(developer) {
+  taskDeveloper = DEVELOPERS.includes(developer) ? developer : "backend";
+  document.querySelectorAll(".dev-switch button").forEach((b) => {
+    b.setAttribute("aria-pressed", String(b.dataset.developer === taskDeveloper));
+  });
+  $("task-form").dataset.developer = taskDeveloper;
+  $("task-input").placeholder = S().task_placeholder[taskDeveloper];
+  try {
+    localStorage.setItem(DEVELOPER_KEY, taskDeveloper);
+  } catch {
+    // storage can be unavailable (private mode); the choice still holds for this visit
+  }
+}
+
+document.querySelectorAll(".dev-switch button").forEach((button) => {
+  button.addEventListener("click", () => setTaskDeveloper(button.dataset.developer));
 });
 
 // ---------- files for the agents ----------
@@ -1016,6 +1095,14 @@ try {
   // keep "auto"
 }
 
+let savedDeveloper = "backend";
+try {
+  savedDeveloper = localStorage.getItem(DEVELOPER_KEY) || "backend";
+} catch {
+  // keep backren
+}
+
 applyLanguage(lang);
+setTaskDeveloper(savedDeveloper);
 setTimeMode(savedTime);
 connect();

@@ -169,10 +169,10 @@ def test_full_office_cycle(fake_claude, tmp_path, monkeypatch):
     office.start_task("Сделай hello world")
     office.wait_idle()
     state = office.snapshot()
-    assert state["agents"]["worker"]["status"] == "idle"
-    assert state["agents"]["worker"]["bubble"] == "Готово! Можно проверять"
+    assert state["agents"]["backend"]["status"] == "idle"
+    assert state["agents"]["backend"]["bubble"] == "Готово! Можно проверять"
     assert (tmp_path / "ws" / "app.py").exists()
-    assert office.session_id == "sess-1"
+    assert office.desks["backend"].session_id == "sess-1"
 
     monkeypatch.setenv(
         "FAKE_CLAUDE_REVIEW",
@@ -192,7 +192,7 @@ def test_full_office_cycle(fake_claude, tmp_path, monkeypatch):
     office.wait_idle()
     rework_call = fake_claude()[2]
     assert "Баг" in rework_call["prompt"]
-    # The worker continues the same conversation, so it remembers the task.
+    # The developer continues the same conversation, so it remembers the task.
     assert rework_call["args"][rework_call["args"].index("--resume") + 1] == "sess-1"
     assert office.agents["reviewer"]["status"] == "idle"
     with pytest.raises(ValueError, match="уже отправлены"):
@@ -231,20 +231,20 @@ def test_busy_rules(tmp_path):
     with pytest.raises(ValueError):
         office.start_task("   ")
 
-    office.agents["worker"]["status"] = "working"
+    office.agents["backend"]["status"] = "working"
     with pytest.raises(Busy):
         office.start_task("again")
 
 
-def test_worker_error_is_reported(fake_claude, tmp_path, monkeypatch):
+def test_developer_error_is_reported(fake_claude, tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_FAIL", "1")
     office = make_office(tmp_path)
 
     office.start_task("x")
     office.wait_idle()
 
-    assert office.agents["worker"]["status"] == "idle"
-    assert office.agents["worker"]["bubble"] == "Что-то пошло не так"
+    assert office.agents["backend"]["status"] == "idle"
+    assert office.agents["backend"]["bubble"] == "Что-то пошло не так"
     assert any(e["kind"] == "error" for e in office._log)
 
 
@@ -258,17 +258,17 @@ def test_describe_tool():
 def test_english_office_talks_to_agents_in_english(fake_claude, tmp_path):
     office = Office(tmp_path / "ws")
     assert office.snapshot()["lang"] == "en"
-    assert office.agents["worker"]["bubble"] == "Waiting for a task"
+    assert office.agents["backend"]["bubble"] == "Waiting for a task"
 
     office.start_task("Make hello world")
     office.wait_idle()
     office.request_review()
     office.wait_idle()
 
-    worker_call, review_call = fake_claude()
-    assert worker_call["prompt"].endswith("Reply in English.")
+    dev_call, review_call = fake_claude()
+    assert dev_call["prompt"].endswith("Reply in English.")
     assert "in English." in review_call["prompt"]
-    assert office.agents["worker"]["bubble"] == "Done! Ready for review"
+    assert office.agents["backend"]["bubble"] == "Done! Ready for review"
 
 
 def test_switching_language_translates_fixed_bubbles(fake_claude, tmp_path):
@@ -277,7 +277,7 @@ def test_switching_language_translates_fixed_bubbles(fake_claude, tmp_path):
 
     office.set_language("ru")
 
-    assert office.agents["worker"]["bubble"] == "Жду задачу"
+    assert office.agents["backend"]["bubble"] == "Жду задачу"
     # Text an agent produced stays as it was written.
     assert office.agents["reviewer"]["bubble"] == "Reading app.py live from the model"
     office.start_task("x")
@@ -348,7 +348,7 @@ def test_http_serves_page_and_state(server):
     status, body = request(base + "/static/app.js")
     assert status == 200
     status, body = request(base + "/api/state")
-    assert json.loads(body)["agents"]["worker"]["status"] == "idle"
+    assert json.loads(body)["agents"]["backend"]["status"] == "idle"
     assert request(base + "/static/../agents.py")[0] == 404
     with urllib.request.urlopen(base + "/static/parens.woff2", timeout=5) as res:
         assert res.headers["Content-Type"] == "font/woff2"
@@ -460,9 +460,9 @@ def test_stop_only_stops_the_agent_it_names(fake_claude, tmp_path, monkeypatch):
 
     with pytest.raises(ValueError):
         office.stop("reviewer")
-    assert office.agents["worker"]["status"] == "working"
+    assert office.agents["backend"]["status"] == "working"
 
-    office.stop("worker")
+    office.stop("backend")
     office.wait_idle()
 
 
@@ -521,7 +521,7 @@ def test_runs_started_after_shutdown_are_stopped(fake_claude, tmp_path):
     office.wait_idle()
 
     assert fake_claude() == []
-    assert office.agents["worker"]["status"] == "idle"
+    assert office.agents["backend"]["status"] == "idle"
 
 
 def test_shutdown_stops_the_running_agents(fake_claude, tmp_path, monkeypatch):
@@ -534,5 +534,5 @@ def test_shutdown_stops_the_running_agents(fake_claude, tmp_path, monkeypatch):
     office.shutdown()
     office.wait_idle()
 
-    assert office.agents["worker"]["status"] == "idle"
+    assert office.agents["backend"]["status"] == "idle"
     assert process_gone(child)

@@ -17,4 +17,5 @@ Write the `task` of each idea in this shape, in plain sentences:
 Rules:
 - Be specific: name the files, commands, inputs and outputs when you can.
 - No secrets, paid APIs or accounts unless the user asked for them; offer a local or mock version instead.
+- Write it for the developer who starts the idea. If it needs both a backend and a frontend, say which part comes first and what the other developer builds after it.
 - Keep it under about 200 words; the developer has its own skills for the details.

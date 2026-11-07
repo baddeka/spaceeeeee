@@ -1,4 +1,4 @@
-"""The idea maker: turns a topic into a few buildable ideas, each with a brief for the developer."""
+"""The idea maker: turns a topic into a few buildable ideas, each with a brief for the developer who starts it."""
 
 from __future__ import annotations
 
@@ -9,15 +9,17 @@ from pydantic import BaseModel, Field, ValidationError
 IDEATOR_TOOLS = ["Read", "Grep", "Glob", "Skill", "WebSearch"]
 
 IDEATOR_PROMPT = """\
-You are idearen, the idea maker in a small software office. coderen, the developer, builds what you \
-propose, and checkren reviews coderen's work.
+You are idearen, the idea maker in a four-person software office: you come up with ideas, backren \
+builds the backend (data, APIs, logic), frontren builds the frontend (pages, components, styles), \
+and checkren reviews their work.
 
 The user gives you a topic. Propose 3 to 5 distinct ideas for software the developer could build on \
 that topic. Make them concrete and buildable, not slogans: each one is a specific tool, app, page, \
 script or feature for a specific kind of user.
 
 Before you answer, load your skills with the Skill tool: brainstorm for finding and choosing ideas, \
-write-brief for each idea's task, and market-check when the topic needs to know what already exists. \
+write-brief for each idea's task, ui-brief for each idea with an interface, and market-check when the \
+topic needs to know what already exists. \
 Use web search only when current facts matter (existing products, recent changes); otherwise rely \
 on what you know.
 
@@ -30,6 +32,12 @@ For each idea:
 - pitch: one or two sentences on what it is and who it is for.
 - why: the problem it solves or what makes it stand out.
 - scope: small (one sitting), medium (a few hours), or large (needs to be split).
+- developer: who starts it. frontend when the heart of the idea is what people see and use (a page, \
+an app screen, a visual or interactive tool); backend when it is data, logic, an API, a bot, a script \
+or a command-line tool.
+- ui: for an idea with an interface, what frontren needs to design it: the screens, the main flow, \
+the states and the mood, as the ui-brief skill says. Describe what it is and how it should feel, not \
+the exact colors and fonts: frontren proposes those and the user picks. Empty when there is no interface.
 - task: a complete brief the developer can start from without asking questions: what to build, \
 the main features, acceptance criteria, what is out of scope, and the suggested stack.
 
@@ -43,6 +51,14 @@ class Idea(BaseModel):
     pitch: str = Field(description="One or two sentences: what it is and who it is for")
     why: str = Field(description="The problem it solves or what makes it stand out")
     scope: Literal["small", "medium", "large"]
+    developer: Literal["backend", "frontend"] = Field(
+        description="Who starts it: frontend when the heart of the idea is what people see and use, "
+        "backend when it is data, logic, an API, a bot or a script"
+    )
+    ui: str = Field(
+        description="For an idea with an interface: its screens, main flow, states and mood, for frontren. "
+        "Empty when it has none"
+    )
     task: str = Field(
         description="Complete brief for the developer: what to build, main features, acceptance "
         "criteria, what is out of scope, suggested stack"
@@ -86,11 +102,13 @@ def task_from_idea(idea: dict, topic: str, intro: str, guard: str) -> str:
     The brief was written by a model that may have read web pages, not by the user, so the
     developer is told where its trust ends.
     """
+    interface = f"Interface:\n{idea['ui']}\n\n" if idea.get("ui") else ""
     return (
         f"{intro} {idea['title']}\n"
         f"Topic: {topic}\n"
         f"Pitch: {idea['pitch']}\n"
         f"Why: {idea['why']}\n\n"
         f"{idea['task']}\n\n"
+        f"{interface}"
         f"{guard}"
     )

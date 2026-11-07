@@ -55,35 +55,45 @@
 
   // deskY is the top edge of the desk; everything an agent owns is placed relative to it.
   // rest: what the agent does when it has nothing to do, in turn; restFrames: how long each lasts.
+  // steam: where a mug on the desk steams, from the desk's left edge, for agents that keep one there.
   const AGENTS = {
-    worker: {
-      cx: 90, deskY: 96, tower: "right", head: "headWorker", headY: -3,
+    backend: {
+      cx: 60, deskY: 96, tower: "right", head: "headBackend", headY: -3,
       shirt: "#3b7bd9", shirtDark: "#2c5fae", hair: "#2d2a26", hairLight: "#4a443d",
-      portrait: "#cfe0fb", cup: C.blue,
+      portrait: "#cfe0fb", cup: C.blue, steam: [49, -8],
       rest: ["music", "sip", "stretch", "music", "nap"], restFrames: 72, restOffset: 0,
     },
     reviewer: {
-      cx: 228, deskY: 96, tower: "left", head: "headReviewer", headY: -4,
+      cx: 260, deskY: 96, tower: "right", head: "headReviewer", headY: -4,
       shirt: "#8b55d6", shirtDark: "#6a3fae", hair: "#8a4a26", hairLight: "#a8633a",
-      portrait: "#e4d6fb", cup: C.white,
+      portrait: "#e4d6fb", cup: C.white, steam: [9, -9],
       rest: ["read", "sip", "stretch", "read", "nap"], restFrames: 88, restOffset: 30,
     },
+    frontend: {
+      cx: 122, deskY: 134, tower: null, head: "headFrontend", headY: -4,
+      shirt: "#e0508a", shirtDark: "#b8386c", hair: "#1f8a8a", hairLight: "#35b8b0",
+      portrait: "#fbd6e6", cup: C.yellow, steam: null,
+      rest: ["sketch", "sip", "stretch", "sketch", "nap"], restFrames: 80, restOffset: 15,
+    },
     ideator: {
-      cx: 160, deskY: 134, tower: null, head: "headIdeator", headY: -4,
+      cx: 200, deskY: 134, tower: null, head: "headIdeator", headY: -4,
       shirt: "#2f9e78", shirtDark: "#237a5d", hair: "#d9a441", hairLight: "#efc46a",
-      beanie: "#e8743b", beanieDark: "#c25a26", portrait: "#d3f1e4", cup: C.red,
+      beanie: "#e8743b", beanieDark: "#c25a26", portrait: "#d3f1e4", cup: C.red, steam: null,
       rest: ["daydream", "juggle", "sip", "daydream", "stretch", "nap"], restFrames: 64, restOffset: 50,
     },
   };
+  const DEVELOPERS = ["backend", "frontend"];
 
   // Statuses in which an agent has nothing to do and may rest.
-  const RESTFUL = { worker: ["idle"], reviewer: ["idle", "approved", "rejected"], ideator: ["idle", "ready"] };
+  const RESTFUL = {
+    backend: ["idle"], frontend: ["idle"], reviewer: ["idle", "approved", "rejected"], ideator: ["idle", "ready"],
+  };
   const REST_AFTER = 3 * FPS; // frames of idleness before resting starts
 
   const WINDOW = { x: 14, y: 7, w: 50, h: 28 };
 
   const SPRITES = {
-    headWorker: [
+    headBackend: [
       "..HHHHHH..",
       ".HKKKKKKH.",
       "HKHhhHHHKH",
@@ -101,6 +111,19 @@
       ".HHhhHHHH.",
       "HHHHHHHHHH",
       "SHHHHHHHHS",
+      "SHHHHHHHHS",
+      ".HHHHHHHH.",
+      "..SSSSSS..",
+      "...SSSS...",
+    ],
+    // two buns on top
+    headFrontend: [
+      ".HH....HH.",
+      "HHhH..HhHH",
+      ".HHHHHHHH.",
+      "HHHHHHHHHH",
+      "HHhHHHHHHH",
+      "HHHHHHHHHH",
       "SHHHHHHHHS",
       ".HHHHHHHH.",
       "..SSSSSS..",
@@ -201,6 +224,7 @@
       "OPPPPPPPPO",
       "OOOOOOOOOO",
     ],
+    cursor: ["X...", "XX..", "XXX.", "XX..", "..X."],
     z: ["XXX", ".X.", "XXX"],
     bigZ: ["XXXX", "..X.", ".X..", "XXXX"],
     note: [".XX", ".X.", ".X.", "XX.", "XX."],
@@ -496,11 +520,22 @@
       shadow(c, tx, y + 28, 10, 2);
     }
 
-    if (name === "worker") {
+    if (name === "backend") {
       // a mug
       rect(c, x + 47, y - 4, 5, 6, C.outline);
       rect(c, x + 48, y - 3, 3, 4, C.blue);
       rect(c, x + 52, y - 2, 1, 2, C.outline);
+    } else if (name === "frontend") {
+      // a fan of colour cards and a drawing tablet with its pen
+      for (const [dx, h, color] of [[5, 6, C.red], [9, 7, C.yellow], [13, 6, C.blue]]) {
+        rect(c, x + dx, y - h + 1, 4, h, C.outline);
+        rect(c, x + dx + 1, y - h + 2, 2, h - 2, color);
+      }
+      rect(c, x + 42, y + 1, 14, 7, C.outline);
+      rect(c, x + 43, y + 2, 12, 5, "#4a4f63");
+      rect(c, x + 45, y + 3, 8, 3, "#6f768f");
+      rect(c, x + 49, y + 4, 5, 1, C.pink);
+      rect(c, x + 54, y + 4, 1, 1, C.outline);
     } else if (name === "reviewer") {
       // a stack of papers and a desk lamp
       rect(c, x + 6, y - 3, 12, 4, C.outline);
@@ -539,8 +574,8 @@
     drawBookshelf(c, 198, 19);
     drawBoard(c, 240, 10);
     drawCooler(c, 296, 26);
-    drawBin(c, 46, 116);
-    drawBin(c, 268, 118);
+    drawBin(c, 8, 118);
+    drawBin(c, 308, 120);
     drawCoffee(c, 12, 152);
     sprite(c, SPRITES.plant, 290, 152, {
       G: C.leaf, g: C.leafDark, L: C.leafLight, O: C.outline, P: C.pot, p: C.potDark,
@@ -576,11 +611,13 @@
   let flight = null; // a sheet of paper flying between desks
   let celebrateUntil = 0;
   let timeMode = "auto"; // "auto" follows the clock; "day" and "night" pin it
-  const idleFrames = { worker: 0, reviewer: 0, ideator: 0 };
+  const idleFrames = Object.fromEntries(Object.keys(AGENTS).map((name) => [name, 0]));
   const lastStatus = {};
   const restShown = {};
 
   const statusOf = (name) => (state && state.agents[name] ? state.agents[name].status : "idle");
+  // The developer who has the current task: the work it hands in, and the notes it gets back.
+  const ownerOf = (s) => (s && DEVELOPERS.includes(s.owner) ? s.owner : "backend");
 
   // ---------- time of day ----------
 
@@ -641,8 +678,8 @@
   // What an agent is doing right now: "work" when busy, "celebrate", "sleep" at night, or a rest activity.
   function activityOf(name) {
     const status = statusOf(name);
-    if (name !== "ideator" && status === "approved" && performance.now() < celebrateUntil) return "celebrate";
-    if (name === "worker" && performance.now() < celebrateUntil) return "celebrate";
+    if (status === "approved" && performance.now() < celebrateUntil) return "celebrate";
+    if (name === ownerOf(state) && performance.now() < celebrateUntil) return "celebrate";
     if (!RESTFUL[name].includes(status) || idleFrames[name] < REST_AFTER) return "work";
     if (phase() === "night") return "sleep";
     const a = AGENTS[name];
@@ -705,6 +742,8 @@
       drawIdeaScreen(c, s, status);
     } else if (activity !== "work" && activity !== "celebrate") {
       drawScreensaver(c, s, AGENTS[name].shirt);
+    } else if (name === "frontend") {
+      drawPageScreen(c, s, status);
     } else {
       drawCodeScreen(c, s, name, status);
     }
@@ -725,10 +764,10 @@
     const scrolling = status === "working" || status === "reviewing";
     const code = ["#7aa2f7", "#9ece6a", "#e0af68", "#bb9af7", "#7dcfff", "#c0caf5"];
     const diff = ["#3fb950", "#6e7681", "#f85149", "#3fb950", "#6e7681", "#6e7681"];
-    const palette = name === "worker" ? code : diff;
+    const palette = name === "backend" ? code : diff;
     const widths = [14, 9, 17, 6, 12, 15, 8, 11];
     const indents = [0, 2, 2, 4, 2, 0, 2, 4];
-    const shift = scrolling ? Math.floor(frame / (name === "worker" ? 1 : 2)) : 0;
+    const shift = scrolling ? Math.floor(frame / (name === "backend" ? 1 : 2)) : 0;
     c.save();
     c.beginPath();
     c.rect(s.x, s.y, s.w, s.h);
@@ -745,6 +784,35 @@
       const lx = s.x + 1 + Math.round(Math.sin(t * Math.PI * 2) * 6 + 8);
       const ly = s.y + 2 + Math.round(Math.cos(t * Math.PI * 2) * 3 + 3);
       sprite(c, SPRITES.lens, lx, ly, { W: C.white, B: C.woodDark });
+    }
+    c.restore();
+  }
+
+  // frontren's screen: a page taking shape block by block, the cursor placing the next one.
+  const PAGE_BLOCKS = [
+    [0, 0, 24, 2, "#c0caf5"], // the top bar
+    [2, 3, 11, 6, "#f59fb8"], // a picture
+    [14, 3, 8, 2, "#e0af68"], // the headline
+    [14, 6, 7, 1, "#6e7681"],
+    [14, 8, 5, 1, "#6e7681"],
+    [2, 10, 6, 4, "#7dcfff"], // three cards
+    [9, 10, 6, 4, "#9ece6a"],
+    [16, 10, 6, 4, "#bb9af7"],
+  ];
+
+  function drawPageScreen(c, s, status) {
+    const building = status === "working";
+    const shown = building ? Math.floor(frame / 3) % (PAGE_BLOCKS.length + 3) : PAGE_BLOCKS.length;
+    c.save();
+    c.beginPath();
+    c.rect(s.x, s.y, s.w, s.h);
+    c.clip();
+    c.globalAlpha = building ? 1 : 0.35;
+    for (const [x, y, w, h, color] of PAGE_BLOCKS.slice(0, shown)) rect(c, s.x + x, s.y + y, w, h, color);
+    c.globalAlpha = 1;
+    if (building) {
+      const [x, y, w, h] = PAGE_BLOCKS[Math.min(shown, PAGE_BLOCKS.length - 1)];
+      sprite(c, SPRITES.cursor, s.x + x + Math.floor(w / 2), s.y + y + Math.floor(h / 2), { X: C.white });
     }
     c.restore();
   }
@@ -786,7 +854,7 @@
     if (status === "reviewing") headDx = frame % 12 < 6 ? -1 : 1;
     if (status === "thinking") headDx = frame % 20 < 10 ? -1 : 0;
     if (activity === "music") headDx = slow % 2 ? 1 : -1;
-    if (activity === "read" || activity === "daydream") headDy = -1;
+    if (activity === "read" || activity === "sketch" || activity === "daydream") headDy = -1;
     if (activity === "nap" || activity === "sleep") headDy = 3;
 
     // arms behind the body first
@@ -813,7 +881,8 @@
         if (!lift && frame % 8 < 4) rect(c, cx + 10, y - 10, 1, 1, "rgba(255,255,255,0.8)");
         break;
       }
-      case "read": {
+      case "read":
+      case "sketch": {
         limb(c, cx - 6, y + 6, cx - 6, y - 7, T);
         limb(c, cx + 5, y + 6, cx + 5, y - 7, T);
         break;
@@ -868,6 +937,16 @@
       const flip = frame % 32;
       sprite(c, SPRITES.book, cx - 7, y - 14, { O: C.outline, P: C.paper, d: C.plasticDark });
       if (flip < 4) line(c, cx - 1 + flip, y - 13, cx - 1 + flip, y - 9, "#d8d3c4");
+      hand(cx - 7, y - 9);
+      hand(cx + 5, y - 9);
+    } else if (activity === "sketch") {
+      // a sketchbook held up, with a little drawing taking shape on it
+      rect(c, cx - 7, y - 15, 14, 10, C.outline);
+      rect(c, cx - 6, y - 14, 12, 8, C.paper);
+      const strokes = [[-4, -11], [-3, -12], [-2, -12], [-1, -11], [0, -10], [1, -10], [2, -11], [3, -12]];
+      for (const [dx, dy] of strokes.slice(0, Math.floor(frame / 4) % (strokes.length + 4))) {
+        rect(c, cx + dx, y + dy, 1, 1, C.purple);
+      }
       hand(cx - 7, y - 9);
       hand(cx + 5, y - 9);
     } else if (activity === "juggle") {
@@ -929,11 +1008,11 @@
   }
 
   function drawSteam(c, name, activity) {
-    if (name === "ideator" || activity === "sleep" || activity === "sip") return;
-    if (statusOf(name) !== "idle") return;
     const a = AGENTS[name];
-    const x = a.cx - 30 + (name === "worker" ? 49 : 9);
-    const y = a.deskY - (name === "worker" ? 8 : 9);
+    if (!a.steam || activity === "sleep" || activity === "sip") return;
+    if (statusOf(name) !== "idle") return;
+    const x = a.cx - 30 + a.steam[0];
+    const y = a.deskY + a.steam[1];
     const p = frame % 8;
     rect(c, x + (p < 4 ? 0 : 1), y - Math.floor(p / 2), 1, 1, "rgba(255,255,255,0.7)");
     rect(c, x + (p < 4 ? 1 : 0), y - 2 - Math.floor(p / 3), 1, 1, "rgba(255,255,255,0.5)");
@@ -994,12 +1073,12 @@
 
   function drawBoardSticky(c) {
     if (!state || state.task === null) return;
-    const worker = state.agents.worker.status;
+    const developer = statusOf(ownerOf(state));
     const reviewer = state.agents.reviewer.status;
     let column = 0;
     let color = C.yellow;
     if (reviewer === "approved") { column = 2; color = C.mint; }
-    else if (reviewer === "reviewing" || (worker === "idle" && reviewer !== "rejected")) column = 1;
+    else if (reviewer === "reviewing" || (developer === "idle" && reviewer !== "rejected")) column = 1;
     else if (reviewer === "rejected") color = "#f7a1a1";
     const x = 244 + column * 15;
     const y = 18;
@@ -1150,7 +1229,8 @@
     const box = canvas.getBoundingClientRect();
     const x = ((event.clientX - box.left) / box.width) * W;
     const y = ((event.clientY - box.top) / box.height) * H;
-    for (const [name, a] of Object.entries(AGENTS)) {
+    const frontFirst = Object.entries(AGENTS).sort(([, p], [, q]) => q.deskY - p.deskY);
+    for (const [name, a] of frontFirst) {
       if (Math.abs(x - a.cx) <= 34 && y >= a.deskY - 26 && y <= a.deskY + 36) return name;
     }
     return null;
@@ -1196,6 +1276,13 @@
     return new Set((s?.ideas || []).filter((i) => i.handed).map((i) => i.title));
   }
 
+  // The developer an idea just went to, if one did.
+  function newlyHanded(prev, next) {
+    const before = handedTitles(prev);
+    const idea = (next.ideas || []).find((i) => i.handed && !before.has(i.title));
+    return idea && DEVELOPERS.includes(idea.developer) ? idea.developer : null;
+  }
+
   window.OfficeScene = {
     drawPortrait,
     restOf: (name) => restShown[name] || "",
@@ -1209,10 +1296,11 @@
       if (prev) {
         const was = prev.agents;
         const now = next.agents;
-        if (was.reviewer.status !== "reviewing" && now.reviewer.status === "reviewing") fly("worker", "reviewer", "work");
-        if (prev.verdict && !prev.verdict.sent && next.verdict && next.verdict.sent) fly("reviewer", "worker", "notes");
-        const before = handedTitles(prev);
-        if ([...handedTitles(next)].some((title) => !before.has(title))) fly("ideator", "worker", "idea");
+        const owner = ownerOf(next);
+        if (was.reviewer.status !== "reviewing" && now.reviewer.status === "reviewing") fly(owner, "reviewer", "work");
+        if (prev.verdict && !prev.verdict.sent && next.verdict && next.verdict.sent) fly("reviewer", owner, "notes");
+        const taker = newlyHanded(prev, next);
+        if (taker) fly("ideator", taker, "idea");
         if (was.reviewer.status !== "approved" && now.reviewer.status === "approved") celebrateUntil = performance.now() + 3000;
       }
       draw();

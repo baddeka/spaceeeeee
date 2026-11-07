@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 from reviewer.context import ContextError
 from reviewer.llm import EFFORTS
 
-from .agents import WORKER_TOOLS, Busy, Office
+from .agents import DEVELOPER_TOOLS, Busy, Office
 from .i18n import LANGUAGES, t
 from .projects import Projects, default_projects_dir
 
@@ -79,7 +79,7 @@ def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
         def log_message(self, format, *args):  # keep the terminal quiet
             pass
 
-        # The worker can run commands on this machine, so only pages opened by a known name may
+        # The developers can run commands on this machine, so only pages opened by a known name may
         # drive it: a site that points its own domain at this address still sends its own name.
         def _host_allowed(self) -> bool:
             try:
@@ -149,15 +149,17 @@ def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
                 "/api/projects/open": lambda: projects.open(Path(str(body.get("path", "")))),
                 "/api/projects/close": projects.close,
                 "/api/lang": lambda: projects.set_language(str(body.get("lang", ""))),
-                "/api/task": lambda: office().start_task(str(body.get("text", "")), files=body.get("files")),
+                "/api/task": lambda: office().start_task(
+                    str(body.get("text", "")), str(body.get("developer", "backend")), files=body.get("files")
+                ),
                 # Files come as base64 in JSON: like every other action, a cross-site page can't send it.
                 "/api/upload": lambda: {"name": office().save_upload(str(body.get("name", "")), body.get("data"))},
                 "/api/review": lambda: office().request_review(),
                 "/api/rework": lambda: office().send_rework(),
                 "/api/accept": lambda: office().accept(),
-                "/api/stop": lambda: office().stop(str(body.get("agent", "worker"))),
+                "/api/stop": lambda: office().stop(str(body.get("agent", ""))),
                 "/api/ideas": lambda: office().generate_ideas(str(body.get("topic", "")), files=body.get("files")),
-                "/api/handoff": lambda: office().hand_off(body.get("index")),
+                "/api/handoff": lambda: office().hand_off(body.get("index"), body.get("developer") or None),
                 "/api/limits": lambda: office().refresh_limits(),
                 "/api/choice": lambda: office().set_choice(
                     str(body.get("agent", "")), body.get("model") or None, body.get("effort") or None
@@ -235,21 +237,21 @@ def main(argv: list[str] | None = None) -> int:
         metavar="NAME",
         help="another name the page may be opened by, e.g. a Tailscale name (repeatable)",
     )
-    p.add_argument("--model", help="Claude model for all three agents (default: Claude Code's default)")
+    p.add_argument("--model", help="Claude model for all the agents (default: Claude Code's default)")
     p.add_argument("--effort", choices=EFFORTS)
-    p.add_argument("--no-bash", action="store_true", help="do not let the worker run shell commands")
+    p.add_argument("--no-bash", action="store_true", help="do not let the developers run shell commands")
     p.add_argument("--lang", choices=LANGUAGES, default="en", help="language of the page and the agents (default: en)")
     p.add_argument("--no-skills", action="store_true", help="run the agents without the office's skills")
     args = p.parse_args(argv)
 
-    tools = [tool for tool in WORKER_TOOLS if not (args.no_bash and tool == "Bash")]
+    tools = [tool for tool in DEVELOPER_TOOLS if not (args.no_bash and tool == "Bash")]
 
     def open_office(folder: Path, lang: str) -> Office:
         return Office(
             folder,
             model=args.model,
             effort=args.effort,
-            worker_tools=tools,
+            developer_tools=tools,
             lang=lang,
             skills=not args.no_skills,
             choices_file=CHOICES_FILE,
@@ -268,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     server = server_class(bind_host)((bind_host, args.port), make_handler(projects, hosts))
     print(f"Rens Office: {page_url(bind_host, server.server_port)}  (projects: {projects.root})")
     if bind_host not in LOOPBACK_NAMES:
-        print("warning: listening beyond this machine; anyone who can reach it can run the worker", file=sys.stderr)
+        print("warning: listening beyond this machine; anyone who can reach it can run the developers", file=sys.stderr)
     # `kill` and a closed terminal must stop the agents too: in their own sessions, they never hear it.
     for name in ("SIGTERM", "SIGHUP"):
         if hasattr(signal, name):
