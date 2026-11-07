@@ -4,8 +4,14 @@ import json
 
 import pytest
 
-from office.agents import SKILLS_DIR, Busy, Office
-from office.designer import DESIGN_FILE, STYLE_TOOLS, design_md, parse_styles
+from office.agents import SKILLS_DIR, STATE_FILE, Busy, Office
+from office.designer import (
+    DESIGN_FILE,
+    STYLE_TOOLS,
+    StylesError,
+    design_md,
+    parse_styles,
+)
 
 from .test_office import fake_claude, request, server  # noqa: F401 (fixtures)
 from .test_office_features import MAJOR, all_args, arg, reviews, work
@@ -72,6 +78,65 @@ def test_choosing_a_style_writes_design_md(fake_claude, tmp_path):  # noqa: F811
     assert office.styles["chosen"] == 2
     assert office.agents["frontend"]["bubble"] == "The style “Swiss Grid” is in DESIGN.md"
     assert office._log[-1]["text"] == "Chose the style “Swiss Grid” for DESIGN.md"
+
+
+def test_choosing_while_frontren_looks_again_keeps_its_bubble(fake_claude, tmp_path):  # noqa: F811
+    office = styled(tmp_path)
+    office.agents["frontend"]["status"] = "thinking"
+    office.agents["frontend"]["bubble"] = "Looking for references and styles"
+
+    office.choose_style(0)
+
+    assert (tmp_path / "ws" / DESIGN_FILE).exists()
+    assert office.agents["frontend"]["bubble"] == "Looking for references and styles"
+
+
+def test_an_empty_or_unusable_answer_is_an_error():
+    unusable = {"name": "A", "mood": "m", "summary": "s", "palette": [{"role": "bg", "hex": "white"}],
+                "heading_font": "Rubik", "body_font": "Rubik", "shapes": "s", "components": "c", "references": [],
+                "fits": "f"}
+    with pytest.raises(StylesError, match="no styles"):
+        parse_styles(None)
+    with pytest.raises(StylesError, match="usable palette"):
+        parse_styles({"directions": [unusable], "recommended": 0})
+
+
+@pytest.mark.parametrize("saved", [
+    {"directions": [{"name": "half"}]},
+    {"directions": "not a list"},
+    "not a dict",
+])
+def test_saved_styles_that_no_longer_hold_are_dropped(tmp_path, saved):
+    folder = tmp_path / "ws"
+    (folder / STATE_FILE).parent.mkdir(parents=True)
+    (folder / STATE_FILE).write_text(json.dumps({"styles": saved}))
+
+    assert Office(folder).styles is None
+
+
+def test_saved_styles_that_lost_a_direction_are_dropped(fake_claude, tmp_path):  # noqa: F811
+    office = styled(tmp_path)
+    office.choose_style(2)
+    state = json.loads((tmp_path / "ws" / STATE_FILE).read_text())
+    state["styles"]["directions"][0]["palette"] = [{"role": "bg", "hex": "white"}]  # the chosen index would shift
+    (tmp_path / "ws" / STATE_FILE).write_text(json.dumps(state))
+
+    assert Office(tmp_path / "ws").styles is None
+
+
+def test_the_autopilot_keeps_frontrens_idea_until_its_search_ends(fake_claude, tmp_path):  # noqa: F811
+    office = Office(tmp_path / "ws")
+    office.generate_ideas("productivity")  # the recommended one is frontren's
+    office.wait_idle()
+    office.agents["frontend"]["status"] = "thinking"
+    office.set_autopilot(True)
+    assert not office.ideas[1]["handed"]
+    office.agents["frontend"]["status"] = "idle"
+
+    office.propose_styles("x")
+    office.wait_idle(30)
+
+    assert office.ideas[1]["handed"] and office.owner == "frontend"
 
 
 def test_a_design_md_that_cannot_be_written_is_reported(fake_claude, tmp_path):  # noqa: F811
