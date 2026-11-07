@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import json
 import queue
+import re
 import signal
 import socket
 import sys
@@ -114,7 +115,8 @@ def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
                 return self._events()
             name = "index.html" if path == "/" else path.removeprefix("/static/")
             file = STATIC_DIR / name
-            if "/" in name or file.suffix not in STATIC_TYPES or not file.is_file():
+            # One plain file name: no folders, and no backslashes, which Windows reads as folders.
+            if not re.fullmatch(r"\w[\w-]*\.\w+", name) or file.suffix not in STATIC_TYPES or not file.is_file():
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             self._send(HTTPStatus.OK, file.read_bytes(), STATIC_TYPES[file.suffix])
 
@@ -126,6 +128,10 @@ def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
             # Requiring JSON forces a CORS preflight on cross-site requests, which this server never approves.
             if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
                 return self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "expected JSON"})
+            if self.headers.get("Transfer-Encoding"):
+                # Only a body with a length is read, so one sent in chunks would be left in the connection.
+                self.close_connection = True
+                return self._json(HTTPStatus.LENGTH_REQUIRED, {"error": "send a Content-Length"})
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 if length > MAX_BODY_BYTES:

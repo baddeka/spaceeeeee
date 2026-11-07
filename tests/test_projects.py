@@ -204,6 +204,18 @@ def test_folders_that_hold_far_more_than_a_project_are_refused(projects, tmp_pat
     assert projects.office is None
 
 
+def test_a_bare_name_opens_a_project_in_the_projects_folder(projects, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # where the server runs, which must never become a project
+
+    projects.open(Path("my-app"))
+    assert projects.office.workspace == (projects.root / "my-app").resolve()
+
+    projects.close()
+    with pytest.raises(ValueError):
+        projects.open(Path(""))  # the projects folder itself
+    assert not (tmp_path / ".git").exists()
+
+
 def test_no_switch_while_the_agents_work(projects, tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_HANG", str(tmp_path / "child.pid"))
     projects.create("busy")

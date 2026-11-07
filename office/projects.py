@@ -65,7 +65,11 @@ class Projects:
         self.open(folder)
 
     def open(self, folder: Path) -> None:
-        folder = Path(folder).expanduser().resolve()
+        folder = Path(folder).expanduser()
+        if not folder.is_absolute():
+            # A bare name is a project in the projects folder, never one where the server happens to run.
+            folder = self.root / folder
+        folder = folder.resolve()
         self._check_folder(folder)
         with self._lock:
             self._release(check_busy=True)

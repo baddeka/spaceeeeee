@@ -2,6 +2,7 @@
 
 import base64
 import json
+import socket
 from pathlib import Path
 
 import pytest
@@ -139,6 +140,26 @@ def test_http_upload_then_task(server, fake_claude):  # noqa: F811
     assert status == 200
     assert "logo.svg" in fake_claude()[0]["prompt"]
     assert request(base + "/api/upload", "POST", {"name": "x", "data": "%%%"}, JSON)[0] == 400
+
+
+def test_http_serves_only_the_page_files(server):  # noqa: F811
+    base, _ = server
+
+    assert request(base + "/static/app.js")[0] == 200
+    for path in ["/static/..%5Cserver.py", "/static/..\\app.js", "/static/.app.js", "/static/a/app.js"]:
+        assert request(base + path)[0] == 404
+
+
+def test_http_refuses_a_chunked_body(server):  # noqa: F811
+    base, _ = server
+    host = base.removeprefix("http://")
+    name, port = host.split(":")
+    with socket.create_connection((name, int(port)), timeout=5) as s:
+        s.sendall(
+            f"POST /api/lang HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n"
+            "Transfer-Encoding: chunked\r\n\r\nd\r\n{\"lang\": \"ru\"}\r\n0\r\n\r\n".encode()
+        )
+        assert s.recv(100).startswith(b"HTTP/1.1 411")
 
 
 def test_http_refuses_a_body_that_is_too_big(server, monkeypatch):  # noqa: F811
