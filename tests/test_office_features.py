@@ -44,7 +44,10 @@ def test_each_role_has_its_own_skills(tmp_path):
     shared = {"test-first", "project-setup", "debugging", "address-review", "self-check"}
 
     assert shared | {"api-design", "data-model"} == skills["backend"]
-    assert shared | {"frontend-design", "frontend-ui", "frontend-verify", "design-directions"} == skills["frontend"]
+    assert shared | {
+        "frontend-design", "frontend-ui", "frontend-verify", "design-directions",
+        "match-reference", "ui-kit", "ux-copy", "motion", "visual-craft",
+    } == skills["frontend"]
     assert {"security-review", "frontend-review", "verify-fixes"} <= skills["reviewer"]
     assert {"brainstorm", "write-brief", "ui-brief"} <= skills["ideator"]
     assert not (skills["backend"] | skills["frontend"]) & skills["reviewer"]
