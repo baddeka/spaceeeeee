@@ -22,6 +22,7 @@ from reviewer.cli import load_config
 from reviewer.llm import BLOCKING, DEFAULT_EFFORT, EFFORTS, Issue, Verdict, review
 from reviewer.processes import kill_tree
 
+from . import eyes
 from .designer import (
     DESIGN_FILE,
     STYLE_PROMPT,
@@ -34,6 +35,7 @@ from .designer import (
     style_request,
 )
 from .i18n import LANGUAGES, has, t
+from .preview import find_page
 from .ideator import (
     IDEATOR_PROMPT,
     IDEATOR_TOOLS,
@@ -78,6 +80,7 @@ contains review notes. Always load self-check and follow it before your final me
 Keep API.md current: it is the contract frontren builds against. If the task needs a user interface, \
 build no more of it than you need to check the backend, and say in your final message what frontren \
 should build.
+The folder .rens-office/ is the office's own: use only the files a request names in it.
 Each request ends with the language to reply in; use it for every message to the user. \
 When you finish, say in two or three sentences what you did and how to run or test it.
 """,
@@ -99,6 +102,12 @@ the backend has one; where an endpoint you need does not exist yet, keep mock da
 module and say in your final message what backren should build.
 Prefer what exists to drawing from scratch: the project's own components, a component library it \
 already uses, an icon set such as Lucide, and images the user attached.
+Look at what you build: `sh .rens-office/shot <file, folder or address>` opens a page in this \
+computer's browser, saves screenshots at a desktop and a phone size for you to Read, and lists script \
+errors, files that failed to load and a layout wider than the phone. The office runs the same look \
+before each review, and a page with such problems comes straight back to you. A project with a build \
+step shows its built page, so build it before you finish. Apart from that tool and the files a request \
+names, the folder .rens-office/ is the office's own.
 Each request ends with the language to reply in; use it for every message to the user. \
 When you finish, say in two or three sentences what you did and how to see it.
 """,
@@ -113,7 +122,8 @@ REVIEWER_SKILLS_HINT = (
     "Before writing the verdict, load the review skills that match the change with the Skill tool: "
     "always edge-cases; test-review when tests were added or should have been; security-review when "
     "the code handles input, files, commands, network or secrets; frontend-review for user interface "
-    "code; verify-fixes when notes from a previous review are listed."
+    "code; design-review when the office gives you screenshots of the page; verify-fixes when notes "
+    "from a previous review are listed."
 )
 
 # Caches and dependency folders: never worth reviewing or committing. They go in the repository's
@@ -128,6 +138,17 @@ LOCAL_EXCLUDES = [
 # paths, and the developers copy in what the project needs.
 OFFICE_DIR = Path(".rens-office")
 UPLOADS_DIR = OFFICE_DIR / "uploads"
+# The office's own look at the project's page: its screenshots, replaced by each new look.
+PREVIEW_DIR = OFFICE_DIR / "preview"
+# Files whose change can change what the page looks like, so it is looked at again.
+PAGE_SUFFIXES = {
+    ".html", ".htm", ".css", ".scss", ".sass", ".less", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx",
+    ".vue", ".svelte", ".astro", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".json",
+}
+REVIEWER_LOOK_HINT = (
+    "The office opened the project's page in a browser. Screenshots of it as it is now: {shots}. Open "
+    "each with the Read tool and review how the page looks, with your design-review skill."
+)
 STATE_FILE = OFFICE_DIR / "state.json"
 LOG_FILE = OFFICE_DIR / "log.jsonl"
 SUMMARY_FILE = OFFICE_DIR / "summary.md"
@@ -246,7 +267,8 @@ def fast_fail_verdict(failed: list[context.CheckResult], lang: str) -> Verdict:
             line=0,
             title=t(lang, "check_failed_title", command=check.command),
             explanation=check.output.strip()[-FAST_FAIL_OUTPUT_CHARS:] or check.command,
-            suggestion=t(lang, "make_check_pass"),
+            # The office's own look at the page is not a command the developer can run by its name.
+            suggestion=t(lang, "fix_page" if check.command == t(lang, "page_check") else "make_check_pass"),
         )
         for check in failed
     ]
@@ -270,6 +292,8 @@ class Office:
         lang: str = "en",
         skills: bool = True,
         choices_file: Path | None = None,
+        look: bool = True,
+        preview_port: int | None = None,
     ):
         if lang not in LANGUAGES:
             raise ValueError(f"unknown language: {lang}")
@@ -278,6 +302,10 @@ class Office:
         self.model = model
         self.effort = effort
         self.developer_tools = developer_tools if developer_tools is not None else DEVELOPER_TOOLS
+        # Whether the office opens the project's page in a browser, to show it and to check it.
+        self.look = look
+        # The port the project's page is served on for the user to open, when the office serves it.
+        self.preview_port = preview_port
         self.skills = {
             role: [skill for plugin in PLUGINS[role] for skill in load_skills(plugin)] if skills else []
             for role in ROLES
@@ -302,6 +330,8 @@ class Office:
         self._review_run: ClaudeCodeRun | None = None
         self._check_proc = None
         self._limits_run: ClaudeCodeRun | None = None
+        self._look_proc = None
+        self._look_lock = threading.Lock()  # one look at a time: they share the screenshots' folder
         # Set by shutdown(): any run that starts afterwards is stopped at once.
         self._closed = False
         self._threads: list[threading.Thread] = []
@@ -318,6 +348,8 @@ class Office:
         self.verdict: dict | None = None
         self.topic: str | None = None
         self.ideas: list[dict] | None = None
+        # The office's last look at the project's page: {"state", "page", "shots", "problems", "faint", "time"}.
+        self.preview: dict | None = None
         # frontren's style directions: {"brief", "directions", "recommended", "chosen"}; the chosen
         # one is the project's DESIGN.md.
         self.styles: dict | None = None
@@ -355,6 +387,7 @@ class Office:
                 "topic": self.topic,
                 "ideas": [dict(idea) for idea in self.ideas] if self.ideas else None,
                 "styles": dict(self.styles) if self.styles else None,
+                "preview": {**self.preview, "port": self.preview_port} if self.preview else None,
                 "lang": self.lang,
                 "autopilot": dict(self.autopilot),
                 "skills": {
@@ -463,6 +496,8 @@ class Office:
             "topic": self.topic,
             "ideas": self.ideas,
             "styles": self.styles,
+            # A look in progress is not worth remembering: the one before it is.
+            "preview": self.preview if self.preview and self.preview["state"] == "ready" else None,
             "history": self.history,
             "cost_usd": round(self.cost_usd, 4),
             "max_rounds": self.autopilot["max_rounds"],
@@ -503,6 +538,7 @@ class Office:
             self.topic = _text(saved.get("topic"))
             self.ideas = _ideas(saved.get("ideas")) if self.topic else None
             self.styles = _styles(saved.get("styles"))
+            self.preview = _preview(saved.get("preview"), self.workspace / PREVIEW_DIR)
             self.history = [done for done in saved.get("history") or [] if _done(done)]
             cost = saved.get("cost_usd")
             self.cost_usd = float(cost) if isinstance(cost, (int, float)) else 0.0
@@ -597,6 +633,17 @@ class Office:
             if missing:
                 with exclude.open("a") as f:
                     f.write("\n# Rens Office: caches are never worth reviewing\n" + "\n".join(missing) + "\n")
+        self._keep(self._write_launchers)
+
+    def _write_launchers(self) -> None:
+        """Puts the `shot` tool where an agent in this project can run it, whatever is on its PATH."""
+        python = Path(sys.executable).as_posix()
+        tool = (Path(__file__).parent / "shot.py").as_posix()
+        folder = self.workspace / OFFICE_DIR
+        folder.mkdir(parents=True, exist_ok=True)
+        usage = "a look at a page. Usage: sh .rens-office/shot <file, folder or address> [steps]"
+        (folder / "shot").write_text(f'#!/bin/sh\n# Rens Office: {usage}\nexec "{python}" "{tool}" "$@"\n', encoding="utf-8")
+        (folder / "shot.cmd").write_text(f'@rem Rens Office: {usage}\r\n@"{python}" "{tool}" %*\r\n', encoding="utf-8")
 
     def _commit(self, message: str) -> str:
         self._git("add", "-A")
@@ -757,10 +804,12 @@ class Office:
                 if r is not None
             ]
             check = self._check_proc
+            browser = self._look_proc
         for run in runs:
             run.stop()
-        if check is not None:
-            kill_tree(check, force=True)
+        for proc in (check, browser):
+            if proc is not None:
+                kill_tree(proc, force=True)
         # The office exits next, so the runs get a moment to end and are then ended outright.
         self.wait_idle(grace)
         for run in runs:
@@ -817,6 +866,77 @@ class Office:
             self._review_run = run
             if self._closed:
                 run.stop()
+
+    # ----- the office's look at the page -----
+
+    def refresh_preview(self) -> None:
+        """Looks at the project's page again, when the user asks."""
+        self._start(self._show_page)
+
+    def _show_page(self) -> None:
+        """A look for the user's sake: failures only end up in the preview, never stop the work."""
+        try:
+            self._look_at_page()
+        except Exception as e:
+            print(f"Rens Office: could not look at the page: {e!r}", file=sys.stderr)
+
+    def _look_at_page(self) -> eyes.Look | None:
+        """Opens the project's page in a browser and keeps what was seen as the preview.
+
+        Returns None when there is nothing to judge: no page that opens as it is, no browser, or a
+        look that failed. A page that is there but broken is returned, problems and all.
+        """
+        if not self.look or self._closed:
+            return None
+        found = find_page(self.workspace)
+        if found is None:
+            self._set_preview(None)
+            return None
+        folder, page = found
+        with self._look_lock:
+            before = self.preview
+            self._set_preview({**(before or {}), "state": "looking", "page": page})
+            try:
+                seen = eyes.look(str(folder / page), self.workspace / PREVIEW_DIR, on_browser=self._track_browser)
+            except eyes.LookError as e:
+                missing = str(e) == eyes.NO_BROWSER
+                self._set_preview({"state": "no_browser" if missing else "failed", "page": page, "error": str(e)})
+                return None
+            finally:
+                with self._lock:
+                    self._look_proc = None
+            self._set_preview(
+                {
+                    "state": "ready",
+                    "page": page,
+                    "shots": [
+                        {"device": view.device.name, "file": shot.name} for view in seen.views for shot in view.shots
+                    ],
+                    "problems": seen.problems(),
+                    "faint": list(dict.fromkeys(text for view in seen.views for text in view.faint))[:8],
+                    "time": time.time(),
+                }
+            )
+            return seen
+
+    def _set_preview(self, preview: dict | None) -> None:
+        with self._lock:
+            changed = preview != self.preview
+            self.preview = preview
+        if changed:
+            self._emit_state()
+
+    def _track_browser(self, proc) -> None:
+        with self._lock:
+            self._look_proc = proc
+            closed = self._closed
+        if closed:
+            kill_tree(proc, force=True)
+
+    def preview_root(self) -> Path | None:
+        """The folder the project's page is served from, for the preview server."""
+        found = find_page(self.workspace)
+        return found[0] if found else None
 
     def _track_check(self, proc) -> None:
         with self._lock:
@@ -1164,6 +1284,10 @@ class Office:
             self._log_entry(developer, "result", result.text)
         self._announce(developer, "done", "idle")
         self._autopilot_step()
+        with self._lock:
+            reviewing = self.agents["reviewer"]["status"] == "reviewing"
+        if not reviewing:
+            self._show_page()  # a review that has started looks at the page itself
 
     def _ideate(self, run: ClaudeCodeRun, topic: str) -> None:
         try:
@@ -1212,6 +1336,15 @@ class Office:
                         self._check_proc = None
                 ctx.checks.append(check)
                 self._log_entry("reviewer", "check", f"{'✓' if check.passed else '✗'} {command}")
+            seen = None
+            if config.get("page_check", True) and _touches_page(ctx.diff):
+                self._announce("reviewer", "looking_at_page")
+                seen = self._look_at_page()
+            if seen is not None:
+                broken = seen.problems()
+                page = context.CheckResult(self._t("page_check"), 1 if broken else 0, "\n".join(broken))
+                ctx.checks.append(page)
+                self._log_entry("reviewer", "check", f"{'✓' if page.passed else '✗'} {page.command}")
 
             failed = [c for c in ctx.checks if not c.passed]
             if failed and config.get("fast_fail", True):
@@ -1222,8 +1355,10 @@ class Office:
                 self._announce("reviewer", "reading_changes")
                 language = REVIEW_LANGUAGE.format(language=self._t("language_name"))
                 hint = REVIEWER_SKILLS_HINT if self._plugin_dirs["reviewer"] else None
+                shots = [shot.relative_to(self.workspace).as_posix() for view in seen.views for shot in view.shots] if seen else []
+                pictures = REVIEWER_LOOK_HINT.format(shots=", ".join(shots)) if shots and hint else None
                 instructions = "\n\n".join(
-                    filter(None, [config.get("instructions"), REVIEWER_PERSONA, hint, language])
+                    filter(None, [config.get("instructions"), REVIEWER_PERSONA, hint, pictures, language])
                 )
                 try:
                     verdict = review(
@@ -1394,6 +1529,36 @@ def _ideas(value) -> list[dict] | None:
         and isinstance(idea.get("handed"), bool)
     ]
     return ideas or None
+
+
+def _touches_page(diff: str) -> bool:
+    """Whether a change includes files that can change what the page looks like."""
+    paths = (line[6:] for line in diff.splitlines() if line.startswith("+++ b/"))
+    return any(Path(path).suffix.lower() in PAGE_SUFFIXES for path in paths)
+
+
+def _preview(value, folder: Path) -> dict | None:
+    """The last look as it was saved, if its screenshots are still there."""
+    if not isinstance(value, dict) or not isinstance(value.get("page"), str):
+        return None
+    shots = value.get("shots")
+    if not isinstance(shots, list) or not shots:
+        return None
+    for shot in shots:
+        ok = isinstance(shot, dict) and isinstance(shot.get("device"), str) and isinstance(shot.get("file"), str)
+        if not ok or safe_file_name(shot["file"]) != shot["file"] or not (folder / shot["file"]).is_file():
+            return None
+    lists = {key: value.get(key) for key in ("problems", "faint")}
+    if not all(isinstance(found, list) and all(isinstance(text, str) for text in found) for found in lists.values()):
+        return None
+    saved = value.get("time")
+    return {
+        "state": "ready",
+        "page": value["page"],
+        "shots": [{"device": shot["device"], "file": shot["file"]} for shot in shots],
+        **lists,
+        "time": saved if isinstance(saved, (int, float)) else 0,
+    }
 
 
 def _styles(value) -> dict | None:

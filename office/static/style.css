@@ -499,6 +499,24 @@ code {
 }
 .idea-cards:empty, .style-cards:empty { display: none; }
 
+/* ---------- the page as the office saw it ---------- */
+
+.preview-head { display: flex; align-items: baseline; gap: 14px; }
+.preview-head h2 { margin-right: auto; }
+.preview-head .link:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+.preview-note { margin: 6px 0 10px; color: var(--muted); font-size: 17px; overflow-wrap: anywhere; }
+.preview-shots { display: grid; grid-template-columns: 3fr 1fr; gap: 10px; align-items: start; }
+.preview-shots:empty { display: none; }
+.preview-shots .shot { display: block; border: 2px solid var(--ink); background: #fff; }
+.preview-shots .shot:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.preview-shots img { display: block; width: 100%; height: auto; }
+.preview[data-state="looking"] .preview-shots { opacity: 0.55; }
+.preview-problems, .preview-faint { margin: 10px 0 0; padding: 0; list-style: none; font-size: 17px; overflow-wrap: anywhere; }
+.preview-problems:empty, .preview-faint:empty { display: none; }
+.preview-problems li { padding: 5px 8px; margin-top: 4px; background: #fbe3e3; border-left: 6px solid var(--bad); }
+.preview-faint li { color: var(--muted); }
+.preview-faint .label { font: 13px/1.4 var(--pixel-font); letter-spacing: 0.04em; }
+
 /* ---------- frontren's styles ---------- */
 
 .style {

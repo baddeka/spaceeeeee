@@ -3,7 +3,7 @@
 
 Reads FAKE_CLAUDE_LOG (where to append the received args), FAKE_CLAUDE_REVIEW (the review to
 return when called with the review schema), FAKE_CLAUDE_IDEAS (the ideas to return when called
-with the ideas schema), FAKE_CLAUDE_STYLES (the style directions), FAKE_CLAUDE_SKILL (a skill the developer loads), FAKE_CLAUDE_FAIL,
+with the ideas schema), FAKE_CLAUDE_STYLES (the style directions), FAKE_CLAUDE_PAGE (a file the developer writes as index.html), FAKE_CLAUDE_SKILL (a skill the developer loads), FAKE_CLAUDE_FAIL,
 FAKE_CLAUDE_NOISE (bytes of stderr to write first), FAKE_CLAUDE_HANG (a file to write the pid
 of a child process to before waiting forever, like a developer running a server) and
 FAKE_CLAUDE_RATE_LIMIT (the rate_limit_info of a rate_limit_event to report).
@@ -120,6 +120,8 @@ else:
             {"type": "tool_use", "name": "Skill", "input": {"skill": f"developer-skills:{skill}"}},
         ]}})
     Path("app.py").write_text("print('hello')\n")
+    if page := os.environ.get("FAKE_CLAUDE_PAGE"):
+        Path("index.html").write_text(Path(page).read_text(encoding="utf-8"), encoding="utf-8")
     emit({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Write", "input": {"file_path": str(Path.cwd() / "app.py")}},
         {"type": "text", "text": "Created app.py with a hello world."},

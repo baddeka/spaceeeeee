@@ -18,7 +18,8 @@ from urllib.parse import urlsplit
 from reviewer.context import ContextError
 from reviewer.llm import EFFORTS
 
-from .agents import DEVELOPER_TOOLS, Busy, Office
+from . import preview
+from .agents import DEVELOPER_TOOLS, PREVIEW_DIR, Busy, Office
 from .i18n import LANGUAGES, t
 from .projects import Projects, default_projects_dir
 
@@ -72,6 +73,19 @@ def _stop_serving(signum, frame):
     raise KeyboardInterrupt
 
 
+def serve_pages(office, bind_host: str, port: int, hosts: set[str]) -> ThreadingHTTPServer:
+    """Serves the page of the project `office()` has open, on `port` or, if it is taken, on a free one."""
+
+    def root() -> Path | None:
+        current = office()
+        return current.preview_root() if current else None
+
+    try:
+        return preview.serve(root, bind_host, port, hosts, server_class(bind_host))
+    except OSError:
+        return preview.serve(root, bind_host, 0, hosts, server_class(bind_host))
+
+
 def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -113,6 +127,14 @@ def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
                 return self._json(HTTPStatus.OK, projects.snapshot())
             if path == "/api/events":
                 return self._events()
+            if path.startswith("/preview/"):
+                # A screenshot from the office's last look at the open project's page.
+                office = projects.office
+                name = path.removeprefix("/preview/")
+                shot = office.workspace / PREVIEW_DIR / name if office else None
+                if shot is None or not re.fullmatch(r"[\w-]+\.png", name) or not shot.is_file():
+                    return self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+                return self._send(HTTPStatus.OK, shot.read_bytes(), "image/png")
             name = "index.html" if path == "/" else path.removeprefix("/static/")
             file = STATIC_DIR / name
             # One plain file name: no folders, and no backslashes, which Windows reads as folders.
@@ -168,6 +190,7 @@ def make_handler(projects: Projects, hosts: set[str] = LOOPBACK_NAMES):
                 "/api/handoff": lambda: office().hand_off(body.get("index"), body.get("developer") or None),
                 "/api/styles": lambda: office().propose_styles(str(body.get("brief", "")), files=body.get("files")),
                 "/api/style": lambda: office().choose_style(body.get("index")),
+                "/api/preview": lambda: office().refresh_preview(),
                 "/api/limits": lambda: office().refresh_limits(),
                 "/api/choice": lambda: office().set_choice(
                     str(body.get("agent", "")), body.get("model") or None, body.get("effort") or None
@@ -250,9 +273,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-bash", action="store_true", help="do not let the developers run shell commands")
     p.add_argument("--lang", choices=LANGUAGES, default="en", help="language of the page and the agents (default: en)")
     p.add_argument("--no-skills", action="store_true", help="run the agents without the office's skills")
+    p.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="do not open the project's page in a browser to show it and to check it before a review",
+    )
     args = p.parse_args(argv)
 
     tools = [tool for tool in DEVELOPER_TOOLS if not (args.no_bash and tool == "Bash")]
+
+    bind_host = args.host.strip("[]")
+    hosts = allowed_hosts(bind_host, args.allow_host)
+    # The open project's page, served for the user on a port of its own: a page built by an agent
+    # must not share an origin with the office, which would let its scripts give the office orders.
+    pages = None if args.no_preview else serve_pages(lambda: projects.office, bind_host, args.port + 1, hosts)
 
     def open_office(folder: Path, lang: str) -> Office:
         return Office(
@@ -263,6 +297,8 @@ def main(argv: list[str] | None = None) -> int:
             lang=lang,
             skills=not args.no_skills,
             choices_file=CHOICES_FILE,
+            look=not args.no_preview,
+            preview_port=pages.server_port if pages else None,
         )
 
     projects = Projects(Path(args.projects).expanduser().resolve(), open_office, lang=args.lang)
@@ -273,8 +309,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ai-office: {e}", file=sys.stderr)
             return 2
 
-    bind_host = args.host.strip("[]")
-    hosts = allowed_hosts(bind_host, args.allow_host)
     server = server_class(bind_host)((bind_host, args.port), make_handler(projects, hosts))
     print(f"Rens Office: {page_url(bind_host, server.server_port)}  (projects: {projects.root})")
     if bind_host not in LOOPBACK_NAMES:
@@ -291,6 +325,9 @@ def main(argv: list[str] | None = None) -> int:
         # The agents' processes have their own sessions, so they would outlive the office.
         projects.shutdown()
         server.server_close()
+        if pages is not None:
+            pages.shutdown()
+            pages.server_close()
     return 0
 
 

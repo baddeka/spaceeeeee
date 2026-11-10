@@ -45,6 +45,9 @@ const STRINGS = {
       btn_stop: "Stop",
       autopilot_label: "AUTOPILOT",
       rounds_label: "Max rounds",
+      preview_title: "PREVIEW",
+      preview_open: "Open ↗",
+      preview_refresh: "Look again",
       log_title: "LOG",
       log_empty: "All quiet. Give backren or frontren a task.",
       now_title: "NOW",
@@ -111,6 +114,12 @@ const STRINGS = {
     hand_off: (name) => `Give to ${name}`,
     hand_other: (name) => `or to ${name}`,
     handed: (name) => `With ${name}`,
+    preview_looking: "Opening the page in a browser…",
+    preview_seen: (page, when) => `${page}, as the office saw it at ${when}`,
+    preview_no_browser: "No Chrome or Edge found on this computer, so there is nothing to show the page in.",
+    preview_failed: (error) => `Could not open the page: ${error}`,
+    preview_faint: "Hard to read, check by eye:",
+    shot_alt: { desktop: "The page on a desktop", phone: "The page on a phone" },
     fonts: (heading, body) => `${heading} · ${body}`,
     preview_button: "Start",
     style_more: "Shapes, components, references",
@@ -179,6 +188,9 @@ const STRINGS = {
       btn_stop: "Стоп",
       autopilot_label: "АВТОПИЛОТ",
       rounds_label: "Раундов, не больше",
+      preview_title: "ПРЕВЬЮ",
+      preview_open: "Открыть ↗",
+      preview_refresh: "Посмотреть снова",
       log_title: "ЖУРНАЛ",
       log_empty: "Пока тихо. Дай задачу backren или frontren.",
       now_title: "СЕЙЧАС",
@@ -245,6 +257,12 @@ const STRINGS = {
     hand_off: (name) => `Передать ${name}`,
     hand_other: (name) => `или ${name}`,
     handed: (name) => `У ${name}`,
+    preview_looking: "Открываю страницу в браузере…",
+    preview_seen: (page, when) => `${page} — как её увидел офис в ${when}`,
+    preview_no_browser: "На этом компьютере не нашлось Chrome или Edge, поэтому показать страницу не в чем.",
+    preview_failed: (error) => `Не удалось открыть страницу: ${error}`,
+    preview_faint: "Плохо читается, проверь глазами:",
+    shot_alt: { desktop: "Страница на компьютере", phone: "Страница на телефоне" },
     fonts: (heading, body) => `${heading} · ${body}`,
     preview_button: "Начать",
     style_more: "Формы, компоненты, референсы",
@@ -417,6 +435,7 @@ function render(s) {
   renderAutopilot(s.autopilot);
   renderIdeas(s, busy);
   renderStyles(s, busy);
+  renderPreview(s.preview);
   renderVerdict(s.verdict, ownerOf(s));
   if (drawerAgent) renderDrawer();
   window.OfficeScene?.setState(s);
@@ -537,6 +556,58 @@ function renderIdeas(s, busy) {
     const idea = s.ideas[Number(button.dataset.index)];
     button.disabled = busy || idea.handed || s.agents[button.dataset.developer]?.status === "thinking";
   });
+}
+
+// ---------- the page as the office saw it ----------
+
+let previewKey = "";
+
+function renderPreview(preview) {
+  const box = $("preview");
+  box.hidden = !preview;
+  if (!preview) return;
+  // Rebuilt only when the look changes, so the pictures don't flicker with every update.
+  const key = JSON.stringify([lang, preview]);
+  if (key === previewKey) return;
+  previewKey = key;
+  const t = S();
+  const looking = preview.state === "looking";
+  box.dataset.state = preview.state;
+  $("preview-refresh").disabled = looking;
+  const when = preview.time ? new Date(preview.time * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  $("preview-note").textContent = looking ? t.preview_looking
+    : preview.state === "no_browser" ? t.preview_no_browser
+      : preview.state === "failed" ? t.preview_failed(preview.error || "")
+        : t.preview_seen(preview.page, when);
+  const open = $("preview-open");
+  open.hidden = !preview.port;
+  if (preview.port) {
+    // The office serves the page on a port of its own, at whatever name this page was opened by.
+    open.href = `${location.protocol}//${location.hostname}:${preview.port}/${preview.page === "index.html" ? "" : preview.page}`;
+  }
+  $("preview-shots").replaceChildren(...(preview.shots || []).map((shot) => {
+    const link = document.createElement("a");
+    link.href = `/preview/${shot.file}?t=${preview.time || 0}`;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.className = `shot ${shot.device}`;
+    const img = document.createElement("img");
+    img.src = link.href;
+    img.alt = t.shot_alt[shot.device] || shot.device;
+    link.append(img);
+    return link;
+  }));
+  const items = (texts) => texts.map((text) => {
+    const li = document.createElement("li");
+    li.textContent = text;
+    return li;
+  });
+  $("preview-problems").replaceChildren(...items(preview.problems || []));
+  const faint = preview.faint || [];
+  const label = document.createElement("li");
+  label.className = "label";
+  label.textContent = t.preview_faint;
+  $("preview-faint").replaceChildren(...(faint.length ? [label, ...items(faint)] : []));
 }
 
 // ---------- frontren's styles ----------
@@ -1096,6 +1167,7 @@ $("style-form").addEventListener("submit", async (e) => {
   if (await post("/api/styles", { brief: $("style-input").value, files: attached.style })) clearFiles("style");
 });
 $("btn-styles-stop").addEventListener("click", () => post("/api/stop", { agent: "frontend" }));
+$("preview-refresh").addEventListener("click", () => post("/api/preview"));
 $("style-cards").addEventListener("click", (e) => {
   const button = e.target.closest(".style-choose");
   if (button && !button.disabled) post("/api/style", { index: Number(button.dataset.index) });
