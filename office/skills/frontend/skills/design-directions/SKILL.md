@@ -20,7 +20,7 @@ The user picks the style; your job is to give them three real choices, each conc
 - Recommend the one you would build, and say why in `fits`.
 
 ## For each direction
-- **Palette:** 4 to 6 colors with roles: background, surface, text, muted text, accent, and one for success or danger when the interface needs it. Text on its background must reach a contrast of at least 4.5:1, the accent on its background 3:1. Give each as `#rrggbb`.
+- **Palette:** 4 to 6 colors. Each has a `token` (exactly one each of `background`, `text` and `accent`; `surface` and `muted` when the style has them; `extra` for the rest) and a `role` in the user's language. Roles: background, surface, text, muted text, accent, and one for success or danger when the interface needs it. Text on its background must reach a contrast of at least 4.5:1, the accent on its background 3:1. Give each as `#rrggbb`.
 - **Fonts:** a heading and a body family that exist on Google Fonts. When the interface is in Russian, both must have Cyrillic (for example Manrope, Onest, Golos Text, Rubik, Unbounded, Jost, Literata, PT Serif, Comfortaa, Russo One).
 - **Shapes:** corner radius, borders, shadows, spacing scale and density, in one or two sentences.
 - **Components:** what buttons, inputs, cards, icons (prefer an icon set such as Lucide) and images look like.

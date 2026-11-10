@@ -56,8 +56,25 @@ the index (starting at 0) of the one you would pick. Never change files; you onl
 """
 
 
+# What a color is for, in words the page can rely on whatever language the roles are written in.
+TOKENS = ("background", "surface", "text", "muted", "accent", "extra")
+# Roles written before colors had tokens, or by a model that left the token out, are read by their words.
+TOKEN_WORDS = {
+    "background": ("background", "фон"),
+    "surface": ("surface", "card", "поверхност", "карточк"),
+    "muted": ("muted", "secondary", "втор", "приглуш"),
+    "text": ("text", "текст", "ink", "чернил"),
+    "accent": ("accent", "primary", "акцент", "кнопк"),
+}
+
+
 class Swatch(BaseModel):
-    role: str = Field(description="What the color is for: background, surface, text, muted text, accent, ...")
+    token: str = Field(
+        default="",
+        description="One of: background (the page), surface (cards, panels), text, muted (secondary text), "
+        "accent (the main action), extra (anything else). Give exactly one each of background, text and accent.",
+    )
+    role: str = Field(description="What the color is for, in the user's language")
     hex: str = Field(description="The color as #rrggbb")
 
 
@@ -111,7 +128,9 @@ def parse_styles(structured: dict | None) -> tuple[list[dict], int]:
     best = 0
     for n, direction in enumerate(output.directions):
         found = direction.model_dump()
-        found["palette"] = [{**s, "hex": s["hex"].strip()} for s in found["palette"] if HEX.fullmatch(s["hex"].strip())]
+        found["palette"] = _tokens(
+            [{**s, "hex": s["hex"].strip()} for s in found["palette"] if HEX.fullmatch(s["hex"].strip())]
+        )
         found["references"] = [
             {**r, "url": r["url"].strip()} for r in found["references"] if _web_address(r["url"])
         ][:MAX_REFERENCES]
@@ -123,6 +142,49 @@ def parse_styles(structured: dict | None) -> tuple[list[dict], int]:
     if not directions:
         raise StylesError("frontren returned no style with a usable palette")
     return directions, best
+
+
+def _tokens(palette: list[dict]) -> list[dict]:
+    """Gives every color its token, so the page can tell the background from the text in any language.
+
+    A token the model gave is kept when it is a known one and not taken; otherwise the role's words
+    decide, and what is still unnamed fills background, text and accent in the order colors are listed.
+    """
+    taken: set[str] = set()
+    for swatch in palette:
+        token = swatch.get("token", "").strip().lower()
+        swatch["token"] = token if token in TOKENS and (token == "extra" or token not in taken) else ""
+        taken.add(swatch["token"])
+    for swatch in palette:
+        if not swatch["token"]:
+            role = swatch["role"].lower()
+            # "muted text" is muted, not text: the more specific word is looked for first.
+            named = next((t for t, words in TOKEN_WORDS.items() if t not in taken and any(w in role for w in words)), "")
+            swatch["token"] = named
+            taken.add(named)
+    for token in ("background", "text", "accent"):
+        if token not in taken and (free := next((s for s in palette if not s["token"]), None)):
+            free["token"] = token
+            taken.add(token)
+    for swatch in palette:
+        swatch["token"] = swatch["token"] or "extra"
+    return palette
+
+
+def css_variables(direction: dict) -> str:
+    """The direction as CSS variables, for frontren to paste into the stylesheet as they are."""
+    lines = []
+    extras = 0
+    for swatch in direction["palette"]:
+        if swatch["token"] == "extra":
+            extras += 1
+            name = f"extra-{extras}"
+        else:
+            name = swatch["token"]
+        lines.append(f"  --color-{name}: {swatch['hex']}; /* {_cell(swatch['role'])} */")
+    lines.append(f"  --font-heading: \"{direction['heading_font']}\", system-ui, sans-serif;")
+    lines.append(f"  --font-body: \"{direction['body_font']}\", system-ui, sans-serif;")
+    return ":root {\n" + "\n".join(lines) + "\n}"
 
 
 def _web_address(url: str) -> bool:
@@ -152,6 +214,12 @@ def design_md(direction: dict) -> str:
         "| Role | Color |",
         "|---|---|",
         *(f"| {_cell(s['role'])} | `{s['hex']}` |" for s in direction["palette"]),
+        "",
+        "Use these as CSS variables, exactly:",
+        "",
+        "```css",
+        css_variables(direction),
+        "```",
         "",
         "## Type",
         "",

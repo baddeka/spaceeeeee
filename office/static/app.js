@@ -636,10 +636,18 @@ function renderStyles(s, busy) {
   list.querySelectorAll(".style-choose").forEach((button) => (button.disabled = busy));
 }
 
-// The colors a preview needs, found by role: frontren names them background, text and accent.
-function pick(palette, word, fallback) {
-  const found = palette.find((swatch) => swatch.role.toLowerCase().includes(word) && !/muted/i.test(swatch.role));
-  return (found || palette[fallback] || palette[0]).hex;
+// The colors a preview needs, by the token the office gave each one, whatever language its role is in.
+function pick(palette, token, fallback) {
+  return (palette.find((swatch) => swatch.token === token) || palette[fallback] || palette[0]).hex;
+}
+
+// Black or white, whichever reads better on a color: the text of a button in the accent color.
+function readableOn(hex) {
+  const [r, g, b] = [1, 3, 5].map((at) => {
+    const v = parseInt(hex.slice(at, at + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? "#000000" : "#ffffff";
 }
 
 function styleCard(direction, index, styles, t) {
@@ -689,8 +697,9 @@ function styleCard(direction, index, styles, t) {
   const button = document.createElement("span");
   button.className = "preview-button";
   button.textContent = t.preview_button;
-  button.style.background = pick(direction.palette, "accent", 2);
-  button.style.color = background;
+  const accent = pick(direction.palette, "accent", 2);
+  button.style.background = accent;
+  button.style.color = readableOn(accent);
   preview.append(title, fonts, button);
 
   const summary = document.createElement("p");

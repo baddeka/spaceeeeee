@@ -292,3 +292,24 @@ def test_http_styles(server, fake_claude):  # noqa: F811
     office.wait_idle()
     status, body = request(base + "/api/style", "POST", {"index": 1}, JSON)
     assert status == 200 and json.loads(body)["styles"]["chosen"] == 1
+
+
+def test_colors_get_tokens_in_any_language(fake_claude, tmp_path):  # noqa: F811
+    russian = [("фон (тетрадный лист)", "#F7F9FC"), ("поверхность: карточка", "#FFFFFF"), ("основной текст", "#1C2A4A"),
+               ("вторичный текст", "#5A6782"), ("акцент: кнопка", "#2346B8"), ("ошибка", "#C62828")]
+    direction = {"name": "A", "mood": "m", "summary": "s", "heading_font": "PT Mono", "body_font": "Golos Text",
+                 "shapes": "s", "components": "c", "references": [], "fits": "f",
+                 "palette": [{"role": role, "hex": color} for role, color in russian]}
+    given = {**direction, "palette": [{"token": "text", "role": "x", "hex": "#111111"},
+                                      {"token": "text", "role": "y", "hex": "#ffffff"},
+                                      {"token": "Accent", "role": "z", "hex": "#ff0000"}]}
+
+    (read, kept), _ = parse_styles({"directions": [direction, given], "recommended": 0})
+
+    assert [s["token"] for s in read["palette"]] == ["background", "surface", "text", "muted", "accent", "extra"]
+    assert [s["token"] for s in kept["palette"]] == ["text", "background", "accent"]  # a token is never given twice
+    design = design_md(read)
+    assert "--color-background: #F7F9FC; /* фон (тетрадный лист) */" in design
+    assert "--color-extra-1: #C62828;" in design and '--font-heading: "PT Mono", system-ui, sans-serif;' in design
+    office = styled(tmp_path)
+    assert all(s["token"] for d in office.styles["directions"] for s in d["palette"])
