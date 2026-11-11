@@ -22,4 +22,4 @@ build-backend = "setuptools.build_meta"
 packages = ["reviewer", "office"]
 
 [tool.setuptools.package-data]
-office = ["static/*", "skills/*/.claude-plugin/*", "skills/*/skills/*/SKILL.md", "skills/*/skills/*/LICENSE.txt"]
+office = ["static/*", "skills/*/.claude-plugin/*", "skills/*/skills/*/*", "skills/*/skills/*/*/*"]

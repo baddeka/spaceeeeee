@@ -41,9 +41,12 @@ def all_args(call, flag):
 
 def test_each_role_has_its_own_skills(tmp_path):
     skills = {role: {s["name"] for s in found} for role, found in Office(tmp_path / "ws").skills.items()}
-    shared = {"test-first", "project-setup", "debugging", "address-review", "self-check"}
+    shared = {
+        "project-setup", "test-driven-development", "systematic-debugging", "verification-before-completion",
+        "receiving-code-review",
+    }
 
-    assert shared | {"api-design", "data-model"} == skills["backend"]
+    assert shared | {"api-design", "data-model", "ponytail"} == skills["backend"]
     assert shared | {
         "frontend-design", "frontend-ui", "frontend-verify", "design-directions",
         "match-reference", "ui-kit", "ux-copy", "motion", "visual-craft",
