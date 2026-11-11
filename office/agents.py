@@ -117,6 +117,20 @@ When you finish, say in two or three sentences what you did and how to see it.
 """,
 }
 
+# frontren's design skills, named in its prompt: its own, or Taste Skill in their place.
+TASTE_SKILL = "design-taste-frontend"
+CLASSIC_DESIGN = (
+    "frontend-design for any new or reshaped interface; visual-craft, ui-kit and ux-copy for every "
+    "interface, since they decide whether it looks designed;"
+)
+TASTE_DESIGN = (
+    f"{TASTE_SKILL} for any new or reshaped interface, and follow it closely, its scripts and checks "
+    "included; ui-kit and ux-copy for every interface;"
+)
+CLASSIC_MOTION = "motion when something should move; "
+CLASSIC_DEFER = "frontend-design skill would make others; that skill decides only what DESIGN.md leaves open."
+TASTE_DEFER = f"{TASTE_SKILL} skill would make others; that skill decides only what DESIGN.md leaves open."
+
 REVIEWER_PERSONA = (
     "In this office you are checkren, the reviewer. The developers whose work you check are backren "
     "(backend) and frontren (frontend); the ideas come from idearen."
@@ -134,7 +148,7 @@ REVIEWER_SKILLS_HINT = (
 # local exclude file, which is not part of the project.
 LOCAL_EXCLUDES = [
     "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/",
-    "node_modules/", ".venv/", "venv/", ".DS_Store", ".rens-office/",
+    "node_modules/", ".venv/", "venv/", ".DS_Store", ".rens-office/", ".taste-skill/",
 ]
 
 # The office's own folder in a project, excluded above, so never committed or reviewed: what it
@@ -241,7 +255,7 @@ def rework_prompt(verdict: dict, lang: str = "en") -> str:
     return "\n".join(lines)
 
 
-def load_skills(plugin: str) -> list[dict]:
+def load_skills(plugin: str | Path) -> list[dict]:
     """Names and descriptions of a plugin's skills, read from their SKILL.md front matter."""
     skills = []
     for path in sorted((SKILLS_DIR / plugin / "skills").glob("*/SKILL.md")):
@@ -295,6 +309,7 @@ class Office:
         developer_tools: list[str] | None = None,
         lang: str = "en",
         skills: bool = True,
+        design_plugin: Path | None = None,
         choices_file: Path | None = None,
         look: bool = True,
         preview_port: int | None = None,
@@ -310,11 +325,12 @@ class Office:
         self.look = look
         # The port the project's page is served on for the user to open, when the office serves it.
         self.preview_port = preview_port
-        self.skills = {
-            role: [skill for plugin in PLUGINS[role] for skill in load_skills(plugin)] if skills else []
-            for role in ROLES
-        }
-        self._plugin_dirs = {role: [SKILLS_DIR / plugin for plugin in PLUGINS[role]] if skills else [] for role in ROLES}
+        # frontren designs with Taste Skill when it is there (see taste.py), else with its own design skills.
+        self.design_skill = TASTE_SKILL if design_plugin and skills else None
+        plugins = {role: [SKILLS_DIR / plugin for plugin in PLUGINS[role]] for role in ROLES}
+        plugins["frontend"].append(design_plugin if self.design_skill else SKILLS_DIR / "frontend-classic")
+        self._plugin_dirs = {role: dirs if skills else [] for role, dirs in plugins.items()}
+        self.skills = {role: [skill for plugin in dirs for skill in load_skills(plugin)] for role, dirs in self._plugin_dirs.items()}
         # Each agent's model and effort as picked on the page, kept in `choices_file` between starts.
         # None is "auto": the command line's --model / --effort, else what Claude Code picks.
         self._choices_file = choices_file
@@ -1227,6 +1243,14 @@ class Office:
 
     # ----- agent loops -----
 
+    def _developer_prompt(self, developer: str) -> str:
+        """The developer's system prompt; with Taste Skill, frontren's design skills are that one."""
+        prompt = DEVELOPER_PROMPTS[developer]
+        if developer == "frontend" and self.design_skill:
+            prompt = prompt.replace(CLASSIC_DESIGN, TASTE_DESIGN).replace(CLASSIC_DEFER, TASTE_DEFER)
+            prompt = prompt.replace(CLASSIC_MOTION, "")  # Taste Skill has its own motion layer
+        return prompt
+
     def _prepare(self, developer: str, prompt: str, with_task: bool = False) -> ClaudeCodeRun:
         """Sets up a developer's next run; called under the lock, with its status set to working.
 
@@ -1248,7 +1272,7 @@ class Office:
             f"{prompt}\n\n{self._t('reply_in')}",
             cwd=self.workspace,
             tools=self.developer_tools + EXTRA_TOOLS[developer],
-            append_system_prompt=DEVELOPER_PROMPTS[developer],
+            append_system_prompt=self._developer_prompt(developer),
             model=self._model(developer),
             effort=self._effort(developer),
             resume=desk.session_id,

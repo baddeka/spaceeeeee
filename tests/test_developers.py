@@ -23,7 +23,9 @@ def test_a_frontend_task_goes_to_frontren(fake_claude, tmp_path):  # noqa: F811
     call = work(fake_claude())[0]
     assert "You are frontren" in arg(call, "--append-system-prompt")
     assert {"WebSearch", "WebFetch", "Skill"} <= set(arg(call, "--tools").split(","))
-    assert all_args(call, "--plugin-dir") == [str(SKILLS_DIR / "developer"), str(SKILLS_DIR / "frontend")]
+    assert all_args(call, "--plugin-dir") == [
+        str(SKILLS_DIR / "developer"), str(SKILLS_DIR / "frontend"), str(SKILLS_DIR / "frontend-classic"),
+    ]
     assert (arg(call, "--model"), arg(call, "--effort")) == ("sonnet", "high")
     assert office.owner == "frontend"
     assert office.agents["frontend"]["bubble"] == "Done! Ready for review"

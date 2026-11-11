@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 from reviewer.context import ContextError
 from reviewer.llm import EFFORTS
 
-from . import preview
+from . import preview, taste
 from .agents import DEVELOPER_TOOLS, PREVIEW_DIR, Busy, Office
 from .i18n import LANGUAGES, t
 from .projects import Projects, default_projects_dir
@@ -291,6 +291,9 @@ def main(argv: list[str] | None = None) -> int:
     # must not share an origin with the office, which would let its scripts give the office orders.
     pages = None if args.no_preview else serve_pages(lambda: projects.office, bind_host, args.port + 1, hosts)
 
+    # Taste Skill, frontren's design skill: fetched once into the cache, else frontren's own skills.
+    design_plugin = None if args.no_skills else taste.ensure()
+
     def open_office(folder: Path, lang: str) -> Office:
         return Office(
             folder,
@@ -299,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
             developer_tools=tools,
             lang=lang,
             skills=not args.no_skills,
+            design_plugin=design_plugin,
             choices_file=CHOICES_FILE,
             look=not args.no_preview,
             preview_port=pages.server_port if pages else None,

@@ -48,13 +48,13 @@ def test_each_role_has_its_own_skills(tmp_path):
 
     assert shared | {"api-design", "data-model", "ponytail"} == skills["backend"]
     assert shared | {
-        "frontend-design", "frontend-ui", "frontend-verify", "design-directions",
-        "match-reference", "ui-kit", "ux-copy", "motion", "visual-craft",
+        "frontend-ui", "frontend-verify", "design-directions", "match-reference", "ui-kit", "ux-copy",
+        "frontend-design", "motion", "visual-craft",  # the classic design skills, without Taste Skill
     } == skills["frontend"]
     assert {"security-review", "frontend-review", "verify-fixes"} <= skills["reviewer"]
     assert {"brainstorm", "write-brief", "ui-brief"} <= skills["ideator"]
     assert not (skills["backend"] | skills["frontend"]) & skills["reviewer"]
-    for plugin in ("developer", "backend", "frontend", "reviewer", "ideator"):
+    for plugin in ("developer", "backend", "frontend", "frontend-classic", "reviewer", "ideator"):
         manifest = json.loads((SKILLS_DIR / plugin / ".claude-plugin" / "plugin.json").read_text())
         assert manifest["name"] == f"{plugin}-skills"
         assert all(s["description"] for s in load_skills(plugin))
