@@ -10,6 +10,8 @@ import re
 import signal
 import socket
 import sys
+import threading
+import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -273,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-bash", action="store_true", help="do not let the developers run shell commands")
     p.add_argument("--lang", choices=LANGUAGES, default="en", help="language of the page and the agents (default: en)")
     p.add_argument("--no-skills", action="store_true", help="run the agents without the office's skills")
+    p.add_argument("--open", action="store_true", help="open the page in the browser once the office is up")
     p.add_argument(
         "--no-preview",
         action="store_true",
@@ -309,8 +312,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ai-office: {e}", file=sys.stderr)
             return 2
 
-    server = server_class(bind_host)((bind_host, args.port), make_handler(projects, hosts))
-    print(f"Rens Office: {page_url(bind_host, server.server_port)}  (projects: {projects.root})")
+    try:
+        server = server_class(bind_host)((bind_host, args.port), make_handler(projects, hosts))
+    except OSError as e:
+        # Most often the office is already running: a second click on its shortcut shows that one.
+        print(f"ai-office: cannot listen on port {args.port}: {e.strerror or e}", file=sys.stderr)
+        projects.shutdown()
+        if pages is not None:
+            pages.shutdown()
+            pages.server_close()
+        if args.open:
+            webbrowser.open(page_url(bind_host, args.port))
+        return 1
+    address = page_url(bind_host, server.server_port)
+    print(f"Rens Office: {address}  (projects: {projects.root})")
+    if args.open:
+        threading.Timer(0.5, webbrowser.open, [address]).start()
     if bind_host not in LOOPBACK_NAMES:
         print("warning: listening beyond this machine; anyone who can reach it can run the developers", file=sys.stderr)
     # `kill` and a closed terminal must stop the agents too: in their own sessions, they never hear it.
